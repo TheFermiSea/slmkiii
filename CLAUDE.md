@@ -11,9 +11,16 @@ This is a fork of `inno/slmkiii`, ported to Python 3.12+.
 ## Commands
 
 ```bash
-python -m unittest tests                              # Run all tests (20 tests)
+python -m unittest tests                              # Run all tests (27 tests)
 python -m unittest tests.TestTemplate.test_create_new  # Run a single test
 coverage run -m unittest tests && coverage report -m   # Coverage report
+uv run slmkiii --help                                  # CLI tool
+uv run slmkiii inspect file.syx                        # Inspect a template
+uv run slmkiii grid file.syx                           # Visual grid layout
+uv run slmkiii diff a.syx b.json                       # Compare templates
+uv run slmkiii convert in.syx out.json                 # Format conversion
+uv run slmkiii push file.syx --slot 1                  # Push to SL MkIII
+uv run slmkiii ports                                   # List MIDI ports
 python aum_suite.py --list                             # List all AUM templates
 python aum_suite.py -o output/                         # Generate templates
 ```
@@ -67,11 +74,26 @@ t.validate()                                     # Check for config errors
 t.enable_all(section='buttons')                  # Enable all buttons
 t.clone()                                        # Deep copy
 t.summary()                                      # Human-readable overview
+t.to_grid()                                      # ASCII art hardware layout
+t.diff(other)                                    # List of field differences
+t.diff_summary(other)                            # Human-readable diff
 len(t)                                           # 77
 for control in t: ...                            # Iterate all controls
 t['buttons']                                     # Section access by name
 t.metadata = {'author': 'Me'}                    # Persists in JSON exports
 ```
+
+## MIDI I/O (`slmkiii/midi.py`)
+
+`find_slmkiii()` scans MIDI ports, `MidiConnection` is a context manager for send/receive, `push_template()` sends a template to the device (splits into SysEx blocks with 20ms inter-block delay), `pull_template()` sends a dump request (device response depends on Novation's undocumented protocol). The SL MkIII exposes multiple MIDI ports; template SysEx operations use the InControl port.
+
+## CLI (`slmkiii/cli.py`)
+
+Entry point: `slmkiii = slmkiii.cli:main`. Subcommands: convert, inspect, grid, diff, validate, push, pull, ports. Slot arguments are 1-indexed (user-facing) converted to 0-indexed internally.
+
+## MCP Server (`slmkiii/mcp_server.py`)
+
+FastMCP server with 12 tools for AI agent integration. Manages a session-scoped `_current_template`. Run with `uv run python -m slmkiii.mcp_server`. The `mcp` dependency is optional (`pip install slmkiii[mcp]`).
 
 ## AUM Suite
 
