@@ -177,14 +177,32 @@ class MidiConnection:
 _SYSEX_HEADER_BYTES = struct.pack('>7B', *SYSEX_HEADER)
 
 
-def push_template(template, slot: int | None = None,
+def _patch_sysex_slot(sysex_data: bytes, device_slot: int) -> bytes:
+    """Patch the slot byte (byte 17) in all SysEx blocks.
+
+    The SL MkIII requires each SysEx block to carry the target slot
+    address at byte offset 17. export_sysex() leaves this as 0x00
+    since it's not needed for file export — this function patches
+    it for device communication.
+    """
+    blocks = _split_sysex_blocks(sysex_data)
+    patched = []
+    for block in blocks:
+        if len(block) >= 18:
+            block = bytearray(block)
+            block[17] = device_slot
+            block = bytes(block)
+        patched.append(block)
+    return patched
+
+
+def push_template(template, slot: int = 0,
                   connection: MidiConnection | None = None) -> None:
     """Send a template to the SL MkIII over MIDI.
 
     Args:
         template: A slmkiii.Template instance.
-        slot: Template slot on the device (0-7). If None, sends without
-              specifying a slot (device uses its current slot).
+        slot: Template slot on the device (0-7).
         connection: An open MidiConnection. If None, auto-discovers the
                     SL MkIII and opens a temporary connection.
 
@@ -192,15 +210,12 @@ def push_template(template, slot: int | None = None,
         ValueError: If slot is out of range.
         ErrorMidiDeviceNotFound: If no SL MkIII is detected.
     """
-    if slot is not None and not (0 <= slot <= 7):
+    if not (0 <= slot <= 7):
         raise ValueError(f'Template slot must be 0-7, got {slot}')
 
     sysex_data = template.export_sysex()
-
-    # The export_sysex() output is a concatenated series of SysEx messages
-    # (each F0...F7). Split and send each block individually with a small
-    # delay to avoid overwhelming the device's SysEx buffer.
-    blocks = _split_sysex_blocks(sysex_data)
+    device_slot = _TEMPLATE_SLOT_OFFSET + slot
+    blocks = _patch_sysex_slot(sysex_data, device_slot)
 
     def _do_push(conn):
         for block in blocks:
