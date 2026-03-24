@@ -41,6 +41,13 @@ class ErrorUnknownExtension(Exception):
         super().__init__(f"Unknown file extension: {extension}")
 
 
+class ErrorMidiDeviceNotFound(Exception):
+    def __init__(self, message: str | None = None):
+        if message is None:
+            message = "No Novation SL MkIII MIDI ports detected"
+        super().__init__(message)
+
+
 class ErrorUnknownVersion(Exception):
     def __init__(self, found: float | None = None,
                  expected: float | None = None):
