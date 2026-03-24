@@ -1,9 +1,15 @@
 """MIDI device discovery and connection management for SL MkIII."""
 from __future__ import annotations
 
+import struct
+import time
+
 import mido
 
 import slmkiii.errors
+from slmkiii.template import (
+    SYSEX_HEADER, SYSEX_END, SYSEX_BLOCK_INIT, SYSEX_TEMPLATE_SIZE,
+)
 
 # Port name substrings that identify the SL MkIII.
 # The device typically appears as "Novation SL MkIII" or "Novation SL MkIII SL MkIII MIDI".
@@ -132,7 +138,6 @@ class MidiConnection:
                 return bytes([0xF0] + list(msg.data) + [0xF7])
         # iter_pending exhausted; block with poll
         if timeout is not None:
-            import time
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 msg = self._input.poll()
@@ -146,3 +151,131 @@ class MidiConnection:
                 if msg.type == 'sysex':
                     return bytes([0xF0] + list(msg.data) + [0xF7])
         return None
+
+    def receive_all(self, timeout: float = 5.0) -> bytes:
+        """Receive multiple SysEx messages and concatenate them.
+
+        Collects messages until no new message arrives within *timeout*
+        seconds of the last received message. This is used for template
+        dumps which arrive as multiple SysEx blocks.
+
+        Returns:
+            Concatenated raw SysEx bytes.
+        """
+        chunks = []
+        while True:
+            msg = self.receive(timeout=timeout)
+            if msg is None:
+                break
+            chunks.append(msg)
+        return b''.join(chunks)
+
+
+# SL MkIII SysEx protocol constants
+# Template dump request: header + 0x01 (init block type) + slot + F7
+_SYSEX_HEADER_BYTES = struct.pack('>7B', *SYSEX_HEADER)
+
+
+def push_template(template, slot: int | None = None,
+                  connection: MidiConnection | None = None) -> None:
+    """Send a template to the SL MkIII over MIDI.
+
+    Args:
+        template: A slmkiii.Template instance.
+        slot: Template slot on the device (0-7). If None, sends without
+              specifying a slot (device uses its current slot).
+        connection: An open MidiConnection. If None, auto-discovers the
+                    SL MkIII and opens a temporary connection.
+
+    Raises:
+        ValueError: If slot is out of range.
+        ErrorMidiDeviceNotFound: If no SL MkIII is detected.
+    """
+    if slot is not None and not (0 <= slot <= 7):
+        raise ValueError(f'Template slot must be 0-7, got {slot}')
+
+    sysex_data = template.export_sysex()
+
+    # The export_sysex() output is a concatenated series of SysEx messages
+    # (each F0...F7). Split and send each block individually with a small
+    # delay to avoid overwhelming the device's SysEx buffer.
+    blocks = _split_sysex_blocks(sysex_data)
+
+    def _do_push(conn):
+        for block in blocks:
+            conn.send(block)
+            time.sleep(0.02)  # 20ms inter-block delay
+
+    if connection is not None:
+        _do_push(connection)
+    else:
+        with MidiConnection() as conn:
+            _do_push(conn)
+
+
+def pull_template(slot: int | None = None,
+                  connection: MidiConnection | None = None,
+                  timeout: float = 10.0):
+    """Request and receive a template dump from the SL MkIII.
+
+    Sends a SysEx dump request and collects the multi-block response,
+    returning a Template object.
+
+    Args:
+        slot: Template slot to pull (0-7). If None, requests the
+              currently active template.
+        connection: An open MidiConnection. If None, auto-discovers.
+        timeout: Seconds to wait for the dump response.
+
+    Returns:
+        A slmkiii.Template instance parsed from the device response.
+
+    Raises:
+        ValueError: If slot is out of range.
+        ErrorMidiDeviceNotFound: If no SL MkIII is detected.
+        TimeoutError: If no response is received within timeout.
+    """
+    if slot is not None and not (0 <= slot <= 7):
+        raise ValueError(f'Template slot must be 0-7, got {slot}')
+
+    # Build the dump request SysEx message.
+    # Header + BLOCK_INIT (0x01) signals a template dump request.
+    # The slot byte follows (0x00-0x07, or omitted for current).
+    request = bytes([0xF0]) + _SYSEX_HEADER_BYTES
+    request += bytes([SYSEX_BLOCK_INIT])
+    if slot is not None:
+        request += bytes([slot])
+    request += bytes([SYSEX_END])
+
+    def _do_pull(conn):
+        # Flush any pending messages
+        while conn.receive(timeout=0.1) is not None:
+            pass
+        conn.send(request)
+        response = conn.receive_all(timeout=timeout)
+        if not response:
+            raise TimeoutError(
+                f'No template dump received within {timeout}s')
+        # Import here to avoid circular import at module level
+        from slmkiii.template import Template
+        return Template(response)
+
+    if connection is not None:
+        return _do_pull(connection)
+    else:
+        with MidiConnection() as conn:
+            return _do_pull(conn)
+
+
+def _split_sysex_blocks(data: bytes) -> list[bytes]:
+    """Split concatenated SysEx data into individual F0...F7 messages."""
+    blocks = []
+    i = 0
+    while i < len(data):
+        if data[i] == 0xF0:
+            end = data.index(0xF7, i)
+            blocks.append(data[i:end + 1])
+            i = end + 1
+        else:
+            i += 1
+    return blocks
