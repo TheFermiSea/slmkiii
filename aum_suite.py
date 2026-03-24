@@ -77,70 +77,18 @@ def build_scale_notes(root, scale_name, num_notes=16):
     return notes
 
 
-# ==============================================================================
-# SL MKIII HELPER FUNCTIONS
-# ==============================================================================
-def assign_note(control, name, channel, note):
-    """Assign a Note message to any control (pad, button, etc.).
-
-    Args:
-        channel: MIDI channel, 1-indexed.
-        note: MIDI note number (0-127).
-    """
-    control.enabled = True
-    control.message_type_name = "Note"
-    control.name = name[:9]
-    control.channel = channel
-    control.first_param = note
-    control.second_param = 0
-    control.third_param = 127   # Velocity On
-    control.fourth_param = note
-
-
-def assign_fader_cc(fader, name, cc_num, channel=1):
-    """Assign a CC message to a fader.
-
-    Fader channel is stored via the dedicated channel property.
-    second_param holds the CC number.
-
-    Args:
-        channel: MIDI channel, 1-indexed.
-    """
-    fader.enabled = True
-    fader.message_type_name = "CC"
-    fader.name = name[:9]
-    fader.channel = channel
-    fader.second_param = cc_num
-
-
-def assign_knob_cc(knob, name, cc_num, channel=1):
-    """Assign a CC message to a knob.
-
-    Knobs store CC number in first_param and channel via a dedicated
-    channel property.
-
-    Args:
-        channel: MIDI channel, 1-indexed.
-    """
-    knob.enabled = True
-    knob.message_type_name = "CC"
-    knob.name = name[:9]
-    knob.first_param = cc_num
-    knob.channel = channel
-
-
 def populate_global_transport(t):
     """Lock buttons 8-15 to Battalion transport & state across all templates."""
     if not hasattr(t, "buttons") or len(t.buttons) < 16:
         return
-    assign_note(t.buttons[8],  "Bat Play",    CH_BAT_MIX,  0)
-    assign_note(t.buttons[9],  "Bat Stop",    CH_BAT_MIX,  2)
-    assign_note(t.buttons[10], "< Preset",    CH_BAT_PERF, 0)
-    assign_note(t.buttons[11], "Preset >",    CH_BAT_PERF, 1)
-    assign_note(t.buttons[12], "Rand Preset", CH_BAT_PERF, 2)
-    assign_note(t.buttons[13], "Rand ALL",    CH_BAT_PERF, 3)
-    assign_note(t.buttons[14], "Reset Perf",  CH_BAT_PERF, 13)
-    assign_note(t.buttons[15], "Commit Perf", CH_BAT_PERF, 14)
+    t.buttons[8].configure_note(CH_BAT_MIX,   0, name="Bat Play")
+    t.buttons[9].configure_note(CH_BAT_MIX,   2, name="Bat Stop")
+    t.buttons[10].configure_note(CH_BAT_PERF,  0, name="< Preset")
+    t.buttons[11].configure_note(CH_BAT_PERF,  1, name="Preset >")
+    t.buttons[12].configure_note(CH_BAT_PERF,  2, name="Rand Preset")
+    t.buttons[13].configure_note(CH_BAT_PERF,  3, name="Rand ALL")
+    t.buttons[14].configure_note(CH_BAT_PERF, 13, name="Reset Perf")
+    t.buttons[15].configure_note(CH_BAT_PERF, 14, name="Commit Perf")
 
 
 # ==============================================================================
@@ -153,11 +101,11 @@ def create_bat_mix_perform(output_dir):
 
     for i in range(8):
         v = i + 1
-        assign_note(t.pad_hits[i],     f"Mute Voice {v}", CH_BAT_MIX, 12 + i)
-        assign_note(t.pad_hits[i + 8], f"Solo Voice {v}", CH_BAT_MIX, 24 + i)
-        assign_note(t.buttons[i],      f"Choke {v}",      CH_BAT_MIX, 60 + i)
-        assign_fader_cc(t.faders[i], f"Bat V{v} Vol", 20 + i, CH_BAT_TRIG)
-        assign_knob_cc(t.knobs[i],   f"Bat V{v} Pan", 30 + i, CH_BAT_TRIG)
+        t.pad_hits[i].configure_note(CH_BAT_MIX, 12 + i, name=f"Mute Voice {v}")
+        t.pad_hits[i + 8].configure_note(CH_BAT_MIX, 24 + i, name=f"Solo Voice {v}")
+        t.buttons[i].configure_note(CH_BAT_MIX, 60 + i, name=f"Choke {v}")
+        t.faders[i].configure_cc(CH_BAT_TRIG, 20 + i, name=f"Bat V{v} Vol")
+        t.knobs[i].configure_cc(CH_BAT_TRIG, 30 + i, name=f"Bat V{v} Pan")
 
     t.save(os.path.join(output_dir, "T01_Bat_Mix.syx"))
 
@@ -169,11 +117,11 @@ def create_bat_triggers_tone(output_dir):
 
     for i in range(8):
         v = i + 1
-        assign_note(t.pad_hits[i],     f"Trig V{v}",     CH_BAT_TRIG, 36 + i)
-        assign_note(t.pad_hits[i + 8], f"Rand V{v}",     CH_BAT_PERF, 24 + i)
-        assign_note(t.buttons[i],      f"Mom.Mute V{v}", CH_BAT_MIX,  36 + i)
-        assign_fader_cc(t.faders[i], f"V{v} Pitch", 40 + i, CH_BAT_TRIG)
-        assign_knob_cc(t.knobs[i],   f"V{v} Decay", 50 + i, CH_BAT_TRIG)
+        t.pad_hits[i].configure_note(CH_BAT_TRIG, 36 + i, name=f"Trig V{v}")
+        t.pad_hits[i + 8].configure_note(CH_BAT_PERF, 24 + i, name=f"Rand V{v}")
+        t.buttons[i].configure_note(CH_BAT_MIX, 36 + i, name=f"Mom.Mute V{v}")
+        t.faders[i].configure_cc(CH_BAT_TRIG, 40 + i, name=f"V{v} Pitch")
+        t.knobs[i].configure_cc(CH_BAT_TRIG, 50 + i, name=f"V{v} Decay")
 
     t.save(os.path.join(output_dir, "T02_Bat_Trig.syx"))
 
@@ -185,11 +133,11 @@ def create_bat_fx_macros(output_dir):
 
     for i in range(8):
         v = i + 1
-        assign_note(t.pad_hits[i],     f"Trig V{v}",      CH_BAT_TRIG, 36 + i)
-        assign_note(t.pad_hits[i + 8], f"Mom.Solo V{v}",  CH_BAT_MIX,  48 + i)
-        assign_note(t.buttons[i],      f"Toggle Mute{v}", CH_BAT_MIX,  12 + i)
-        assign_fader_cc(t.faders[i], f"V{v} Dly Send", 60 + i, CH_BAT_TRIG)
-        assign_knob_cc(t.knobs[i],   f"V{v} Rev Send", 70 + i, CH_BAT_TRIG)
+        t.pad_hits[i].configure_note(CH_BAT_TRIG, 36 + i, name=f"Trig V{v}")
+        t.pad_hits[i + 8].configure_note(CH_BAT_MIX, 48 + i, name=f"Mom.Solo V{v}")
+        t.buttons[i].configure_note(CH_BAT_MIX, 12 + i, name=f"Toggle Mute{v}")
+        t.faders[i].configure_cc(CH_BAT_TRIG, 60 + i, name=f"V{v} Dly Send")
+        t.knobs[i].configure_cc(CH_BAT_TRIG, 70 + i, name=f"V{v} Rev Send")
 
     t.save(os.path.join(output_dir, "T03_Bat_FX.syx"))
 
@@ -201,9 +149,9 @@ def create_bat_global_perf(output_dir):
 
     for i in range(8):
         v = i + 1
-        assign_note(t.pad_hits[i],     f"Trig V{v}",  CH_BAT_TRIG, 36 + i)
-        assign_note(t.pad_hits[i + 8], f"Choke V{v}", CH_BAT_MIX,  60 + i)
-        assign_note(t.buttons[i],      f"Rand V{v}",  CH_BAT_PERF, 24 + i)
+        t.pad_hits[i].configure_note(CH_BAT_TRIG, 36 + i, name=f"Trig V{v}")
+        t.pad_hits[i + 8].configure_note(CH_BAT_MIX, 60 + i, name=f"Choke V{v}")
+        t.buttons[i].configure_note(CH_BAT_PERF, 24 + i, name=f"Rand V{v}")
 
     perf_faders = [
         "Perf Pitch", "Perf Decay", "Perf Depth", "Perf Wave",
@@ -214,8 +162,8 @@ def create_bat_global_perf(output_dir):
         "Variation",   "Mast Maxmz", "Mast EQ Lo", "Mast EQ Hi",
     ]
     for i in range(8):
-        assign_fader_cc(t.faders[i], perf_faders[i], 80 + i, CH_BAT_PERF)
-        assign_knob_cc(t.knobs[i],   perf_knobs[i],  90 + i, CH_BAT_PERF)
+        t.faders[i].configure_cc(CH_BAT_PERF, 80 + i, name=perf_faders[i])
+        t.knobs[i].configure_cc(CH_BAT_PERF, 90 + i, name=perf_knobs[i])
 
     t.save(os.path.join(output_dir, "T04_Bat_Perf.syx"))
 
@@ -238,15 +186,15 @@ def create_bat_voice_chromatic(voice_num, output_dir, scale_name="chromatic"):
 
     notes = build_scale_notes(60, scale_name, 16)
     for n_idx, note in enumerate(notes):
-        assign_note(t.pad_hits[n_idx], f"V{voice_num} N{note}", channel, note)
+        t.pad_hits[n_idx].configure_note(channel, note, name=f"V{voice_num} N{note}")
 
-    assign_note(t.buttons[0], f"Mute V{voice_num}",  CH_BAT_MIX,  12 + i)
-    assign_note(t.buttons[1], f"Solo V{voice_num}",  CH_BAT_MIX,  24 + i)
-    assign_note(t.buttons[2], f"Choke V{voice_num}", CH_BAT_MIX,  60 + i)
-    assign_note(t.buttons[3], f"Rand V{voice_num}",  CH_BAT_PERF, 24 + i)
-    assign_note(t.buttons[4], f"MomMute V{voice_num}", CH_BAT_MIX, 36 + i)
-    assign_note(t.buttons[5], f"MomSolo V{voice_num}", CH_BAT_MIX, 48 + i)
-    assign_note(t.buttons[6], f"Trig V{voice_num}",  CH_BAT_TRIG, 36 + i)
+    t.buttons[0].configure_note(CH_BAT_MIX, 12 + i, name=f"Mute V{voice_num}")
+    t.buttons[1].configure_note(CH_BAT_MIX, 24 + i, name=f"Solo V{voice_num}")
+    t.buttons[2].configure_note(CH_BAT_MIX, 60 + i, name=f"Choke V{voice_num}")
+    t.buttons[3].configure_note(CH_BAT_PERF, 24 + i, name=f"Rand V{voice_num}")
+    t.buttons[4].configure_note(CH_BAT_MIX, 36 + i, name=f"MomMute V{voice_num}")
+    t.buttons[5].configure_note(CH_BAT_MIX, 48 + i, name=f"MomSolo V{voice_num}")
+    t.buttons[6].configure_note(CH_BAT_TRIG, 36 + i, name=f"Trig V{voice_num}")
 
     voice_faders = [
         f"V{voice_num} Level",  f"V{voice_num} Pitch",
@@ -261,8 +209,8 @@ def create_bat_voice_chromatic(voice_num, output_dir, scale_name="chromatic"):
         f"V{voice_num} RevSnd", f"V{voice_num} Fine",
     ]
     for k in range(8):
-        assign_fader_cc(t.faders[k], voice_faders[k], 20 + k, channel)
-        assign_knob_cc(t.knobs[k],   voice_knobs[k],  30 + k, channel)
+        t.faders[k].configure_cc(channel, 20 + k, name=voice_faders[k])
+        t.knobs[k].configure_cc(channel, 30 + k, name=voice_knobs[k])
 
     template_num = 4 + voice_num
     t.save(os.path.join(output_dir, f"T{template_num:02d}_Bat_V{voice_num}_Chr.syx"))
@@ -277,10 +225,10 @@ def create_king_of_fm(output_dir):
     populate_global_transport(t)
 
     for i in range(16):
-        assign_note(t.pad_hits[i], f"KoFM Note {60 + i}", CH_KINGOFFM, 60 + i)
+        t.pad_hits[i].configure_note(CH_KINGOFFM, 60 + i, name=f"KoFM Note {60 + i}")
 
     for i in range(8):
-        assign_note(t.buttons[i], f"KoFM Alg {i + 1}", CH_KINGOFFM, 10 + i)
+        t.buttons[i].configure_note(CH_KINGOFFM, 10 + i, name=f"KoFM Alg {i + 1}")
 
     fm_faders = [
         "Op 1 Level", "Op 2 Level", "Op 3 Level", "Op 4 Level",
@@ -291,8 +239,8 @@ def create_king_of_fm(output_dir):
         "Atk Time",   "Dec Time",   "Sus Level",  "Rel Time",
     ]
     for i in range(8):
-        assign_fader_cc(t.faders[i], fm_faders[i], 20 + i, CH_KINGOFFM)
-        assign_knob_cc(t.knobs[i],   fm_knobs[i],  30 + i, CH_KINGOFFM)
+        t.faders[i].configure_cc(CH_KINGOFFM, 20 + i, name=fm_faders[i])
+        t.knobs[i].configure_cc(CH_KINGOFFM, 30 + i, name=fm_knobs[i])
 
     t.save(os.path.join(output_dir, "T13_KingOfFM.syx"))
 
@@ -304,10 +252,10 @@ def create_animoog(output_dir, scale_name="minor_pentatonic"):
 
     notes = build_scale_notes(60, scale_name, 16)
     for i, note in enumerate(notes):
-        assign_note(t.pad_hits[i], f"Ani Note {note}", CH_ANIMOOG, note)
+        t.pad_hits[i].configure_note(CH_ANIMOOG, note, name=f"Ani Note {note}")
 
     for i in range(8):
-        assign_note(t.buttons[i], f"Orbit Tog {i + 1}", CH_ANIMOOG, 20 + i)
+        t.buttons[i].configure_note(CH_ANIMOOG, 20 + i, name=f"Orbit Tog {i + 1}")
 
     ani_faders = [
         "Amp Attack",  "Amp Decay",   "Amp Sustain", "Amp Release",
@@ -318,8 +266,8 @@ def create_animoog(output_dir, scale_name="minor_pentatonic"):
         "Filter Res",   "Filter Drive", "Delay Time",  "Delay Fdbk",
     ]
     for i in range(8):
-        assign_fader_cc(t.faders[i], ani_faders[i], 20 + i, CH_ANIMOOG)
-        assign_knob_cc(t.knobs[i],   ani_knobs[i],  30 + i, CH_ANIMOOG)
+        t.faders[i].configure_cc(CH_ANIMOOG, 20 + i, name=ani_faders[i])
+        t.knobs[i].configure_cc(CH_ANIMOOG, 30 + i, name=ani_knobs[i])
 
     t.save(os.path.join(output_dir, "T14_Animoog.syx"))
 
@@ -330,10 +278,10 @@ def create_drambo(output_dir):
     populate_global_transport(t)
 
     for i in range(16):
-        assign_note(t.pad_hits[i], f"Dr Track {i + 1}", CH_DRAMBO, 36 + i)
+        t.pad_hits[i].configure_note(CH_DRAMBO, 36 + i, name=f"Dr Track {i + 1}")
 
     for i in range(8):
-        assign_note(t.buttons[i], f"Dr Mute T{i + 1}", CH_DRAMBO, 60 + i)
+        t.buttons[i].configure_note(CH_DRAMBO, 60 + i, name=f"Dr Mute T{i + 1}")
 
     drm_faders = [
         "Track 1 Vol", "Track 2 Vol", "Track 3 Vol", "Track 4 Vol",
@@ -344,8 +292,8 @@ def create_drambo(output_dir):
         "Macro 5",    "Macro 6",    "Macro 7", "Crossfader",
     ]
     for i in range(8):
-        assign_fader_cc(t.faders[i], drm_faders[i], 20 + i, CH_DRAMBO)
-        assign_knob_cc(t.knobs[i],   drm_knobs[i],  30 + i, CH_DRAMBO)
+        t.faders[i].configure_cc(CH_DRAMBO, 20 + i, name=drm_faders[i])
+        t.knobs[i].configure_cc(CH_DRAMBO, 30 + i, name=drm_knobs[i])
 
     t.save(os.path.join(output_dir, "T15_Drambo.syx"))
 
@@ -356,14 +304,14 @@ def create_audulus(output_dir):
     populate_global_transport(t)
 
     for i in range(16):
-        assign_note(t.pad_hits[i], f"Gate {i + 1}", CH_AUDULUS, 36 + i)
+        t.pad_hits[i].configure_note(CH_AUDULUS, 36 + i, name=f"Gate {i + 1}")
 
     for i in range(8):
-        assign_note(t.buttons[i], f"Toggle {i + 1}", CH_AUDULUS, 60 + i)
+        t.buttons[i].configure_note(CH_AUDULUS, 60 + i, name=f"Toggle {i + 1}")
 
     for i in range(8):
-        assign_fader_cc(t.faders[i], f"Audulus CV {i + 1}",  20 + i, CH_AUDULUS)
-        assign_knob_cc(t.knobs[i],   f"Audulus Mod {i + 1}", 30 + i, CH_AUDULUS)
+        t.faders[i].configure_cc(CH_AUDULUS, 20 + i, name=f"Audulus CV {i + 1}")
+        t.knobs[i].configure_cc(CH_AUDULUS, 30 + i, name=f"Audulus Mod {i + 1}")
 
     t.save(os.path.join(output_dir, "T16_Audulus.syx"))
 
@@ -382,9 +330,9 @@ def create_aum_mixer(output_dir):
     populate_global_transport(t)
 
     for i in range(8):
-        assign_note(t.pad_hits[i],     f"AUM Trig {i + 1}",  CH_AUM_MIXER, 60 + i)
-        assign_note(t.pad_hits[i + 8], f"AUM Trig {i + 9}",  CH_AUM_MIXER, 68 + i)
-        assign_note(t.buttons[i],      f"AUM Btn {i + 1}",   CH_AUM_MIXER, 0 + i)
+        t.pad_hits[i].configure_note(CH_AUM_MIXER, 60 + i, name=f"AUM Trig {i + 1}")
+        t.pad_hits[i + 8].configure_note(CH_AUM_MIXER, 68 + i, name=f"AUM Trig {i + 9}")
+        t.buttons[i].configure_note(CH_AUM_MIXER, 0 + i, name=f"AUM Btn {i + 1}")
 
     mixer_faders = [
         "AUM Ch 1 Vol", "AUM Ch 2 Vol", "AUM Ch 3 Vol", "AUM Ch 4 Vol",
@@ -395,8 +343,8 @@ def create_aum_mixer(output_dir):
         "AUM Ch 5 Pan", "AUM Ch 6 Pan", "AUM Ch 7 Pan", "AUM Ch 8 Pan",
     ]
     for i in range(8):
-        assign_fader_cc(t.faders[i], mixer_faders[i], 20 + i, CH_AUM_MIXER)
-        assign_knob_cc(t.knobs[i],   mixer_knobs[i],  30 + i, CH_AUM_MIXER)
+        t.faders[i].configure_cc(CH_AUM_MIXER, 20 + i, name=mixer_faders[i])
+        t.knobs[i].configure_cc(CH_AUM_MIXER, 30 + i, name=mixer_knobs[i])
 
     t.save(os.path.join(output_dir, "T17_AUM_Mixer.syx"))
 

@@ -371,6 +371,315 @@ class Template():
             return control.third_param
         return None
 
+    # ---- Diffing ----
+
+    def diff(self, other: Template) -> list[dict]:
+        """Compare this template to another, returning a list of differences.
+
+        Each difference is a dict with keys: section, index, field,
+        self_value, other_value. Skips computed *_param_name and
+        *_method_name fields.
+        """
+        diffs = []
+        if self.name != other.name:
+            diffs.append({
+                'section': 'template',
+                'index': None,
+                'field': 'name',
+                'self_value': self.name,
+                'other_value': other.name,
+            })
+        for sdata in sections:
+            section_name = sdata['name']
+            self_controls = getattr(self, section_name)
+            other_controls = getattr(other, section_name)
+            for i in range(min(len(self_controls), len(other_controls))):
+                self_dict = self_controls[i].export_dict()
+                other_dict = other_controls[i].export_dict()
+                all_keys = set(self_dict.keys()) | set(other_dict.keys())
+                for key in sorted(all_keys):
+                    if key.endswith('_param_name') or key.endswith('_method_name'):
+                        continue
+                    self_val = self_dict.get(key)
+                    other_val = other_dict.get(key)
+                    if self_val != other_val:
+                        diffs.append({
+                            'section': section_name,
+                            'index': i,
+                            'field': key,
+                            'self_value': self_val,
+                            'other_value': other_val,
+                        })
+        return diffs
+
+    def diff_summary(self, other: Template) -> str:
+        """Return a human-readable summary of differences with another template."""
+        diffs = self.diff(other)
+        if not diffs:
+            return 'Templates are identical'
+        lines = []
+        for d in diffs:
+            if d['index'] is not None:
+                lines.append(
+                    f"{d['section']}[{d['index']}].{d['field']}: "
+                    f"{d['self_value']!r} \u2192 {d['other_value']!r}"
+                )
+            else:
+                lines.append(
+                    f"{d['field']}: {d['self_value']!r} \u2192 {d['other_value']!r}"
+                )
+        return '\n'.join(lines)
+
+    # ---- Grid visualization ----
+
+    @staticmethod
+    def _grid_note_number(control) -> int | None:
+        """Return the note number for grid display.
+
+        For buttons and pad hits, the note is stored in fourth_param
+        by configure_note(). Falls back to _note_number() for other types.
+        """
+        if isinstance(control, Button) and control.message_type == 2:
+            return control.fourth_param
+        return Template._note_number(control)
+
+    @staticmethod
+    def _control_desc(control) -> str:
+        """Return a compact description like 'CC30 Ch1' or 'N60 Ch2'."""
+        type_name = control.message_type_name
+        ch = control.channel
+        ch_str = f'Ch{ch}' if ch != 'default' else 'ChDef'
+
+        if type_name == 'CC':
+            cc = Template._cc_number(control)
+            if cc is not None:
+                return f'CC{cc} {ch_str}'
+            return f'CC {ch_str}'
+        elif type_name == 'Note':
+            note = Template._grid_note_number(control)
+            if note is not None:
+                return f'N{note} {ch_str}'
+            return f'Note {ch_str}'
+        elif type_name == 'NRPN':
+            return f'NRPN {ch_str}'
+        elif type_name == 'Program Change':
+            return f'PCh {ch_str}'
+        elif type_name == 'Channel Pressure':
+            return f'ChP {ch_str}'
+        elif type_name == 'Poly Aftertouch':
+            return f'PA {ch_str}'
+        elif type_name == 'Song Position':
+            return f'SP {ch_str}'
+        return f'{type_name} {ch_str}'
+
+    @staticmethod
+    def _grid_row(cells: list[list[str]], col_width: int) -> str:
+        """Render one grid row with box-drawing characters.
+
+        Each cell is a list of lines to display. All cells are padded
+        to the same number of lines.
+        """
+        max_lines = max(len(c) for c in cells)
+        for c in cells:
+            while len(c) < max_lines:
+                c.append('')
+
+        lines = []
+        # top border
+        top = '\u250c' + '\u252c'.join(
+            '\u2500' * (col_width + 2) for _ in cells
+        ) + '\u2510'
+        lines.append(top)
+        # content lines
+        for row_idx in range(max_lines):
+            row = '\u2502' + '\u2502'.join(
+                f' {c[row_idx]:<{col_width}} ' for c in cells
+            ) + '\u2502'
+            lines.append(row)
+        return '\n'.join(lines)
+
+    @staticmethod
+    def _grid_separator(n_cols: int, col_width: int) -> str:
+        return '\u251c' + '\u253c'.join(
+            '\u2500' * (col_width + 2) for _ in range(n_cols)
+        ) + '\u2524'
+
+    @staticmethod
+    def _grid_bottom(n_cols: int, col_width: int) -> str:
+        return '\u2514' + '\u2534'.join(
+            '\u2500' * (col_width + 2) for _ in range(n_cols)
+        ) + '\u2518'
+
+    @staticmethod
+    def _control_cell(control, label: str) -> list[str]:
+        """Build cell content lines for a single control."""
+        if not control.enabled:
+            return [label, '(off)']
+        cell = [label]
+        if control.name:
+            cell.append(control.name)
+        cell.append(Template._control_desc(control))
+        return cell
+
+    def to_grid(self) -> str:
+        """Return an ASCII art grid showing the physical SL MkIII layout."""
+        col_width = 9
+        n_cols = 8
+        output_lines = []
+
+        title = f'Template: {self.name or "(unnamed)"}'
+        output_lines.append(title)
+        output_lines.append('')
+
+        # -- Knobs page 1 (indices 0-7) --
+        knob_cells_p1 = []
+        for i in range(8):
+            knob_cells_p1.append(
+                self._control_cell(self.knobs[i], f'Knob {i + 1}')
+            )
+        output_lines.append(self._grid_row(knob_cells_p1, col_width))
+
+        # -- Knobs page 2 (indices 8-15) if any are enabled --
+        page2_enabled = any(self.knobs[i].enabled for i in range(8, 16))
+        if page2_enabled:
+            output_lines.append(self._grid_separator(n_cols, col_width))
+            knob_cells_p2 = []
+            for i in range(8, 16):
+                knob_cells_p2.append(
+                    self._control_cell(self.knobs[i], f'Knob {i + 1}')
+                )
+            # render just the content lines (no top border)
+            max_lines = max(len(c) for c in knob_cells_p2)
+            for c in knob_cells_p2:
+                while len(c) < max_lines:
+                    c.append('')
+            for row_idx in range(max_lines):
+                row = '\u2502' + '\u2502'.join(
+                    f' {c[row_idx]:<{col_width}} '
+                    for c in knob_cells_p2
+                ) + '\u2502'
+                output_lines.append(row)
+
+        # -- Faders --
+        output_lines.append(self._grid_separator(n_cols, col_width))
+        fader_cells = []
+        for i in range(8):
+            fader_cells.append(
+                self._control_cell(self.faders[i], f'Fader {i + 1}')
+            )
+        max_lines = max(len(c) for c in fader_cells)
+        for c in fader_cells:
+            while len(c) < max_lines:
+                c.append('')
+        for row_idx in range(max_lines):
+            row = '\u2502' + '\u2502'.join(
+                f' {c[row_idx]:<{col_width}} '
+                for c in fader_cells
+            ) + '\u2502'
+            output_lines.append(row)
+
+        # -- Pads upper row (0-7) --
+        output_lines.append(self._grid_separator(n_cols, col_width))
+        pad_cells_upper = []
+        for i in range(8):
+            pad_cells_upper.append(
+                self._control_cell(self.pad_hits[i], f'Pad {i + 1}')
+            )
+        max_lines = max(len(c) for c in pad_cells_upper)
+        for c in pad_cells_upper:
+            while len(c) < max_lines:
+                c.append('')
+        for row_idx in range(max_lines):
+            row = '\u2502' + '\u2502'.join(
+                f' {c[row_idx]:<{col_width}} '
+                for c in pad_cells_upper
+            ) + '\u2502'
+            output_lines.append(row)
+
+        # -- Pads lower row (8-15) --
+        output_lines.append(self._grid_separator(n_cols, col_width))
+        pad_cells_lower = []
+        for i in range(8, 16):
+            pad_cells_lower.append(
+                self._control_cell(self.pad_hits[i], f'Pad {i + 1}')
+            )
+        max_lines = max(len(c) for c in pad_cells_lower)
+        for c in pad_cells_lower:
+            while len(c) < max_lines:
+                c.append('')
+        for row_idx in range(max_lines):
+            row = '\u2502' + '\u2502'.join(
+                f' {c[row_idx]:<{col_width}} '
+                for c in pad_cells_lower
+            ) + '\u2502'
+            output_lines.append(row)
+
+        # -- Buttons upper row (0-7) --
+        output_lines.append(self._grid_separator(n_cols, col_width))
+        btn_cells_upper = []
+        for i in range(8):
+            btn_cells_upper.append(
+                self._control_cell(self.buttons[i], f'Btn {i + 1}')
+            )
+        max_lines = max(len(c) for c in btn_cells_upper)
+        for c in btn_cells_upper:
+            while len(c) < max_lines:
+                c.append('')
+        for row_idx in range(max_lines):
+            row = '\u2502' + '\u2502'.join(
+                f' {c[row_idx]:<{col_width}} '
+                for c in btn_cells_upper
+            ) + '\u2502'
+            output_lines.append(row)
+
+        # -- Buttons lower row (8-15) --
+        output_lines.append(self._grid_separator(n_cols, col_width))
+        btn_cells_lower = []
+        for i in range(8, 16):
+            btn_cells_lower.append(
+                self._control_cell(self.buttons[i], f'Btn {i + 1}')
+            )
+        max_lines = max(len(c) for c in btn_cells_lower)
+        for c in btn_cells_lower:
+            while len(c) < max_lines:
+                c.append('')
+        for row_idx in range(max_lines):
+            row = '\u2502' + '\u2502'.join(
+                f' {c[row_idx]:<{col_width}} '
+                for c in btn_cells_lower
+            ) + '\u2502'
+            output_lines.append(row)
+
+        # -- Bottom border --
+        output_lines.append(self._grid_bottom(n_cols, col_width))
+
+        # -- Auxiliary controls (wheels, pedals, footswitches, pad_pressures) --
+        aux_lines = []
+        for section_name, label_prefix in [
+            ('wheels', 'Wheel'),
+            ('pedals', 'Pedal'),
+            ('footswitches', 'Footsw'),
+            ('pad_pressures', 'PadPrs'),
+        ]:
+            controls = getattr(self, section_name)
+            enabled = [
+                (i, c) for i, c in enumerate(controls) if c.enabled
+            ]
+            if enabled:
+                items = []
+                for i, c in enabled:
+                    name_part = f' {c.name}' if c.name else ''
+                    desc = self._control_desc(c)
+                    items.append(f'{label_prefix} {i + 1}:{name_part} {desc}')
+                aux_lines.append(', '.join(items))
+
+        if aux_lines:
+            output_lines.append('')
+            for line in aux_lines:
+                output_lines.append(line)
+
+        return '\n'.join(output_lines)
+
     # ---- Dunder methods ----
 
     def __repr__(self) -> str:

@@ -198,3 +198,102 @@ class TestTemplate(unittest.TestCase):
             knob.message_type_name = name
             self.assertEqual(knob.message_type, expected_type)
             self.assertEqual(knob.message_type_name, name)
+
+    def test_to_grid_basic(self):
+        template = slmkiii.Template()
+        template.name = 'GridTest'
+        # Configure some controls
+        template.knobs[0].configure_cc(1, 30, 'V1 Pan')
+        template.knobs[1].configure_cc(1, 31, 'V2 Pan')
+        template.faders[0].configure_cc(1, 20, 'V1 Vol')
+        template.buttons[0].configure_note(10, 60, name='Choke V1')
+        template.pad_hits[0].configure_note(10, 12, name='Mute V1')
+
+        grid = template.to_grid()
+
+        self.assertIsInstance(grid, str)
+        self.assertGreater(len(grid), 0)
+        # Verify template name appears
+        self.assertIn('GridTest', grid)
+        # Verify control names appear
+        self.assertIn('V1 Pan', grid)
+        self.assertIn('V2 Pan', grid)
+        self.assertIn('V1 Vol', grid)
+        self.assertIn('Choke V1', grid)
+        self.assertIn('Mute V1', grid)
+        # Verify CC/Note descriptions
+        self.assertIn('CC30 Ch1', grid)
+        self.assertIn('CC31 Ch1', grid)
+        self.assertIn('CC20 Ch1', grid)
+        self.assertIn('N60 Ch10', grid)
+        self.assertIn('N12 Ch10', grid)
+        # Disabled controls show (off)
+        self.assertIn('(off)', grid)
+        # Box drawing characters present
+        self.assertIn('\u250c', grid)
+        self.assertIn('\u2518', grid)
+
+    def test_to_grid_knob_page2(self):
+        template = slmkiii.Template()
+        template.knobs[8].configure_cc(2, 50, 'ExtraKnb')
+        grid = template.to_grid()
+        # Page 2 should appear since knob 8 is enabled
+        self.assertIn('Knob 9', grid)
+        self.assertIn('ExtraKnb', grid)
+        self.assertIn('CC50 Ch2', grid)
+
+    def test_to_grid_no_knob_page2_when_disabled(self):
+        template = slmkiii.Template()
+        template.knobs[0].configure_cc(1, 10, 'K1')
+        grid = template.to_grid()
+        # Page 2 should not appear
+        self.assertNotIn('Knob 9', grid)
+
+    def test_to_grid_auxiliary_controls(self):
+        template = slmkiii.Template()
+        template.wheels[0].enabled = True
+        template.wheels[0].name = 'ModWheel'
+        template.wheels[0].message_type = 0
+        template.wheels[0].second_param = 1
+        template.wheels[0].channel = 1
+        grid = template.to_grid()
+        self.assertIn('Wheel 1', grid)
+        self.assertIn('ModWheel', grid)
+
+    def test_to_grid_default_channel(self):
+        template = slmkiii.Template()
+        template.knobs[0].enabled = True
+        template.knobs[0].name = 'DefCh'
+        grid = template.to_grid()
+        self.assertIn('ChDef', grid)
+
+    def test_diff_identical(self):
+        t1 = slmkiii.Template()
+        t2 = slmkiii.Template()
+        self.assertEqual(t1.diff(t2), [])
+        self.assertEqual(t1.diff_summary(t2), 'Templates are identical')
+
+    def test_diff_modified(self):
+        t1 = slmkiii.Template()
+        t2 = slmkiii.Template()
+        t2.name = 'Changed'
+        t2.buttons[0].channel = 5
+        t2.buttons[0].name = 'MyBtn'
+        t2.knobs[0].first_param = 42
+
+        diffs = t1.diff(t2)
+        self.assertGreater(len(diffs), 0)
+
+        fields = [(d['section'], d['field']) for d in diffs]
+        self.assertIn(('template', 'name'), fields)
+        self.assertIn(('buttons', 'channel'), fields)
+        self.assertIn(('buttons', 'name'), fields)
+        self.assertIn(('knobs', 'first_param'), fields)
+
+        # Computed fields should be excluded
+        for d in diffs:
+            self.assertFalse(d['field'].endswith('_param_name'))
+
+        summary = t1.diff_summary(t2)
+        self.assertIn('→', summary)
+        self.assertIn('Changed', summary)
