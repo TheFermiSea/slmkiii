@@ -43,7 +43,7 @@ class TestTemplate(unittest.TestCase):
     def test_parse_invalid_sysex(self):
         with open('tests/data/test1.syx', 'rb') as r:
             raw = r.read()
-        raw += 'uh oh'
+        raw += b'uh oh'
         with self.assertRaises(slmkiii.errors.ErrorUnknownData):
             slmkiii.Template(raw)
         with self.assertRaises(slmkiii.errors.ErrorUnknownData):
@@ -58,7 +58,7 @@ class TestTemplate(unittest.TestCase):
     def test_save_export_json(self):
         tf = tempfile.NamedTemporaryFile(suffix='.syx')
         template1 = slmkiii.Template('tests/data/expected_1.json')
-        template1.save(tf.name, overwrite=True)
+        template1.save(tf.name)
         template2 = slmkiii.Template(tf.name)
         with open('tests/data/expected_1.syx', 'rb') as f:
             sysex2 = f.read()
@@ -67,14 +67,14 @@ class TestTemplate(unittest.TestCase):
     def test_save_json(self):
         tf = tempfile.NamedTemporaryFile(suffix='.json')
         template1 = slmkiii.Template('tests/data/test1.syx')
-        template1.save(tf.name, overwrite=True)
+        template1.save(tf.name)
         template2 = slmkiii.Template(tf.name)
         self.assertDictEqual(template1.export_json(), template2.export_json())
 
     def test_save_export_sysex(self):
         tf = tempfile.NamedTemporaryFile(suffix='.syx')
         template1 = slmkiii.Template('tests/data/expected_1.json')
-        template1.save(tf.name, overwrite=True)
+        template1.save(tf.name)
         with open(tf.name, 'rb') as f:
             sysex1 = f.read()
         with open('tests/data/expected_1.syx', 'rb') as f:
@@ -113,13 +113,88 @@ class TestTemplate(unittest.TestCase):
     def test_do_not_replace(self):
         tf = tempfile.NamedTemporaryFile(suffix='.syx')
         template = slmkiii.Template('tests/data/minimal_2.json')
+        template.save(tf.name)
         with self.assertRaises(slmkiii.errors.ErrorFileExists):
-            template.save(tf.name, overwrite=True)
-            template.save(tf.name)
+            template.save(tf.name, overwrite=False)
 
     def test_create_new(self):
         tf = tempfile.NamedTemporaryFile(suffix='.syx')
         template1 = slmkiii.Template()
-        template1.save(tf.name, overwrite=True)
+        template1.save(tf.name)
         template2 = slmkiii.Template(tf.name)
         self.assert_equal_templates(template1, template2)
+
+    def test_attribute_modification_roundtrip(self):
+        template = slmkiii.Template()
+        template.name = 'Modified'
+        template.buttons[0].name = 'MyButton'
+        template.buttons[0].channel = 5
+        template.buttons[0].message_type = 2
+        template.buttons[0].fourth_param = 42
+        template.knobs[0].name = 'MyKnob'
+        template.knobs[0].channel = 10
+        template.knobs[0].message_type = 1
+        template.knobs[0].first_param = 99
+        template.faders[0].name = 'MyFader'
+        template.faders[0].channel = 3
+        template.faders[0].message_type = 0
+        template.faders[0].second_param = 77
+
+        tf = tempfile.NamedTemporaryFile(suffix='.syx', delete=False)
+        template.save(tf.name)
+        reloaded = slmkiii.Template(tf.name)
+
+        self.assertEqual(reloaded.name, 'Modified')
+        self.assertEqual(reloaded.buttons[0].name, 'MyButton')
+        self.assertEqual(reloaded.buttons[0].channel, 5)
+        self.assertEqual(reloaded.buttons[0].message_type, 2)
+        self.assertEqual(reloaded.buttons[0].fourth_param, 42)
+        self.assertEqual(reloaded.knobs[0].name, 'MyKnob')
+        self.assertEqual(reloaded.knobs[0].channel, 10)
+        self.assertEqual(reloaded.knobs[0].message_type, 1)
+        self.assertEqual(reloaded.knobs[0].first_param, 99)
+        self.assertEqual(reloaded.faders[0].name, 'MyFader')
+        self.assertEqual(reloaded.faders[0].channel, 3)
+        self.assertEqual(reloaded.faders[0].message_type, 0)
+        self.assertEqual(reloaded.faders[0].second_param, 77)
+
+    def test_channel_roundtrip(self):
+        for channel_value in [1, 8, 16, 'default']:
+            template = slmkiii.Template()
+            template.buttons[0].channel = channel_value
+            template.knobs[0].channel = channel_value
+            template.faders[0].channel = channel_value
+            template.pad_hits[0].channel = channel_value
+
+            tf = tempfile.NamedTemporaryFile(suffix='.syx', delete=False)
+            template.save(tf.name)
+            reloaded = slmkiii.Template(tf.name)
+
+            self.assertEqual(reloaded.buttons[0].channel, channel_value,
+                             f"Button channel {channel_value} did not round-trip")
+            self.assertEqual(reloaded.knobs[0].channel, channel_value,
+                             f"Knob channel {channel_value} did not round-trip")
+            self.assertEqual(reloaded.faders[0].channel, channel_value,
+                             f"Fader channel {channel_value} did not round-trip")
+            self.assertEqual(reloaded.pad_hits[0].channel, channel_value,
+                             f"PadHit channel {channel_value} did not round-trip")
+
+    def test_name_truncation(self):
+        template = slmkiii.Template()
+        template.knobs[0].name = 'VeryLongNameThatExceeds9'
+        tf = tempfile.NamedTemporaryFile(suffix='.syx', delete=False)
+        template.save(tf.name)
+        reloaded = slmkiii.Template(tf.name)
+        self.assertTrue(len(reloaded.knobs[0].name) <= 9)
+
+    def test_message_type_name_setter(self):
+        template = slmkiii.Template()
+        knob = template.knobs[0]
+        for name, expected_type in [
+            ('CC', 0), ('NRPN', 1), ('Note', 2),
+            ('Program Change', 3), ('Song Position', 4),
+            ('Channel Pressure', 5), ('Poly Aftertouch', 6),
+        ]:
+            knob.message_type_name = name
+            self.assertEqual(knob.message_type, expected_type)
+            self.assertEqual(knob.message_type_name, name)

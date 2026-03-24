@@ -1,16 +1,18 @@
+from __future__ import annotations
+
 import struct
 from slmkiii.template.input.button import Button
 
 
 class PadHit(Button):
-    def __init__(self, data=None):
+    def __init__(self, data: bytes | bytearray | dict | None = None):
         super(PadHit, self).__init__(data)
         self.max_velocity = self.data(28)
         self.min_velocity = self.data(29)
         self.range_method = self.data(30)
 
-    def from_dict(self, data):
-        super(PadHit, self).from_dict(data, extend=True)
+    def from_dict(self, data: dict) -> dict:
+        data = super(PadHit, self).from_dict(data, extend=True)
         self._data += struct.pack(
             '>HBBB',
             0,
@@ -19,8 +21,9 @@ class PadHit(Button):
             data['range_method'],
         )
         self._data = self._data.ljust(self.length, b'\0')
+        return data
 
-    def export_dict(self):
+    def export_dict(self) -> dict:
         data = super(PadHit, self).export_dict()
         data.update({
             'max_velocity': self.max_velocity,
@@ -31,7 +34,7 @@ class PadHit(Button):
         return data
 
     @property
-    def range_method_name(self):
+    def range_method_name(self) -> str:
         method_names = {
             0: 'None',
             1: 'Clip',

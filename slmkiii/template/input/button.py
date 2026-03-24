@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import struct
-from slmkiii.template.input import Input
+from slmkiii.template.input import Input, _validate_int_range
 
 
 class Button(Input):
-    def __init__(self, data=None):
+    def __init__(self, data: bytes | bytearray | dict | None = None):
         super(Button, self).__init__(data)
         self.behavior = self.data(12)
         self.action = self.data(13)
@@ -17,24 +19,80 @@ class Button(Input):
         self.fourth_param = self.data(24)
         self.lsb_index = self.data(25)
 
-    def from_dict(self, data, extend=False):
-        super(Button, self).from_dict(data)
-        # Interesting way of signing
-        if data['step'] != 0:
-            msb = (data['step'] + 8192) >> 7 & 127
-            lsb = (data['step'] + 8192) & 127
-        else:
-            msb = 0
-            lsb = 0
+    @property
+    def behavior(self) -> int:
+        return self._behavior
 
+    @behavior.setter
+    def behavior(self, value: int) -> None:
+        _validate_int_range('behavior', value, 0, 255)
+        self._behavior = value
+
+    @property
+    def action(self) -> int:
+        return self._action
+
+    @action.setter
+    def action(self, value: int) -> None:
+        _validate_int_range('action', value, 0, 255)
+        self._action = value
+
+    @property
+    def first_param(self) -> int:
+        return self._first_param
+
+    @first_param.setter
+    def first_param(self, value: int) -> None:
+        _validate_int_range('first_param', value, 0, 65535)
+        self._first_param = value
+
+    @property
+    def second_param(self) -> int:
+        return self._second_param
+
+    @second_param.setter
+    def second_param(self, value: int) -> None:
+        _validate_int_range('second_param', value, 0, 65535)
+        self._second_param = value
+
+    @property
+    def third_param(self) -> int:
+        return self._third_param
+
+    @third_param.setter
+    def third_param(self, value: int) -> None:
+        _validate_int_range('third_param', value, 0, 255)
+        self._third_param = value
+
+    @property
+    def fourth_param(self) -> int:
+        return self._fourth_param
+
+    @fourth_param.setter
+    def fourth_param(self, value: int) -> None:
+        _validate_int_range('fourth_param', value, 0, 255)
+        self._fourth_param = value
+
+    @property
+    def lsb_index(self) -> int:
+        return self._lsb_index
+
+    @lsb_index.setter
+    def lsb_index(self, value: int) -> None:
+        _validate_int_range('lsb_index', value, 0, 255)
+        self._lsb_index = value
+
+    def from_dict(self, data: dict, extend: bool = False) -> dict:
+        data = super(Button, self).from_dict(data)
+        # Step is stored as a signed big-endian 16-bit short, matching
+        # the decode in __init__ which uses struct.unpack('>h', ...).
         self._data += struct.pack(
-            '>BBHHBB??BBBB',
+            '>BBHHh??BBBB',
             data['behavior'],
             data['action'],
             data['first_param'],
             data['second_param'],
-            msb,
-            lsb,
+            data['step'],
             data['wrap'],
             data['pair'],
             data['channel'],
@@ -44,8 +102,9 @@ class Button(Input):
         )
         if extend is False:
             self._data = self._data.ljust(self.length, b'\0')
+        return data
 
-    def export_dict(self):
+    def export_dict(self) -> dict:
         data = super(Button, self).export_dict()
         data.update({
             'behavior': self.behavior,
@@ -66,8 +125,21 @@ class Button(Input):
         })
         return data
 
+    def configure_cc(self, channel: int | str, cc_num: int,
+                     name: str | None = None) -> None:
+        super().configure_cc(channel, cc_num, name)
+        self.fourth_param = cc_num
+
+    def configure_note(self, channel: int | str, note: int,
+                       velocity: int = 127, name: str | None = None) -> None:
+        super().configure_note(channel, note, velocity, name)
+        self.first_param = note
+        self.second_param = 0
+        self.third_param = velocity
+        self.fourth_param = note
+
     @property
-    def first_param_name(self):
+    def first_param_name(self) -> str:
         first_param_names = {
             0: 'Down Value',
             1: 'On Value',
@@ -77,7 +149,7 @@ class Button(Input):
         return first_param_names[self.behavior]
 
     @property
-    def second_param_name(self):
+    def second_param_name(self) -> str:
         second_param_names = {
             0: 'Up Value',
             1: 'Off Value',
@@ -87,13 +159,13 @@ class Button(Input):
         return second_param_names[self.behavior]
 
     @property
-    def third_param_name(self):
+    def third_param_name(self) -> str:
         if self.message_type == 2:
             return 'Note'
         return 'n/a'
 
     @property
-    def fourth_param_name(self):
+    def fourth_param_name(self) -> str:
         if self.message_type == 0:
             return 'CC Index'
         if self.message_type == 1:

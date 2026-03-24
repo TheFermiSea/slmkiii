@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import os
 from slmkiii.errors import ErrorUnknownExtension
 
 
-def file_type(filename):
+def file_type(filename: str) -> str:
     _, extension = os.path.splitext(filename)
+    extension = extension.lower()
     if extension in ('.js', '.json'):
         return 'json'
     if extension in ('.syx', '.sysex'):
@@ -11,21 +14,21 @@ def file_type(filename):
     raise ErrorUnknownExtension(extension)
 
 
-def bytes_to_nibbles(data):
+def bytes_to_nibbles(data: int) -> bytes:
     nibbles = [0] * 8
     for ofst in range(8):
         nibbles[ofst] = data >> 4 * (7 - ofst) & 15
     return bytes(nibbles)
 
 
-def nibbles_to_bytes(data):
+def nibbles_to_bytes(data: bytes | bytearray) -> int:
     output = 0
     for idx, val in enumerate(data):
         output += val * pow(16, 7 - idx)
     return (output % 0x100000000) >> 0
 
 
-def seven_to_eight(data):
+def seven_to_eight(data: bytes | bytearray) -> bytes:
     raw = list(data)
     result = []
     offset = 0
@@ -39,7 +42,7 @@ def seven_to_eight(data):
     return bytes(result)
 
 
-def eight_to_seven(data):
+def eight_to_seven(data: bytes | bytearray) -> bytes:
     result = [0] * (1 + len(data) - -(len(data) // 7))
     seven_offset = 0
     eight_offset = 0
@@ -49,8 +52,8 @@ def eight_to_seven(data):
             if seven_offset + incr < len(data):
                 char = data[seven_offset + incr]
                 result[eight_offset + incr + 1] = 127 & char
-            sevens = (128 & char) >> 7 - incr
-            result[eight_offset] |= sevens
+                sevens = (128 & char) >> (7 - incr)
+                result[eight_offset] |= sevens
         eight_offset += 8
         seven_offset += 7
     return bytes(result)
