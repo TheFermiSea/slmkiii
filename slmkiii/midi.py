@@ -202,7 +202,8 @@ def push_template(template, slot: int = 0,
 
     Args:
         template: A slmkiii.Template instance.
-        slot: Template slot on the device (0-7).
+        slot: Template slot on the device (0-63). The device displays
+              these as template 1-64 (1-indexed).
         connection: An open MidiConnection. If None, auto-discovers the
                     SL MkIII and opens a temporary connection.
 
@@ -210,8 +211,8 @@ def push_template(template, slot: int = 0,
         ValueError: If slot is out of range.
         ErrorMidiDeviceNotFound: If no SL MkIII is detected.
     """
-    if not (0 <= slot <= 7):
-        raise ValueError(f'Template slot must be 0-7, got {slot}')
+    if not (0 <= slot <= 63):
+        raise ValueError(f'Template slot must be 0-63, got {slot}')
 
     sysex_data = template.export_sysex()
     device_slot = _TEMPLATE_SLOT_OFFSET + slot
@@ -254,7 +255,7 @@ def _build_dump_request(group: int, slot: int) -> bytes:
 # The device has 8 template slots mapped to group-2 slot indices.
 # From sniffed traffic, templates appear at slots 0x38-0x3F in group 0x02.
 _TEMPLATE_GROUP = 0x02
-_TEMPLATE_SLOT_OFFSET = 0x38  # Template 0 = group 2, slot 0x38
+_TEMPLATE_SLOT_OFFSET = 0x00  # Template N on device = group 2, slot N
 
 
 def pull_template(slot: int = 0,
@@ -266,7 +267,8 @@ def pull_template(slot: int = 0,
     returning a Template object.
 
     Args:
-        slot: Template slot to pull (0-7).
+        slot: Template slot to pull (0-63). The device displays
+              these as template 1-64 (1-indexed).
         connection: An open MidiConnection. If None, auto-discovers.
         timeout: Seconds to wait for the dump response.
 
@@ -278,8 +280,8 @@ def pull_template(slot: int = 0,
         ErrorMidiDeviceNotFound: If no SL MkIII is detected.
         TimeoutError: If no response is received within timeout.
     """
-    if not (0 <= slot <= 7):
-        raise ValueError(f'Template slot must be 0-7, got {slot}')
+    if not (0 <= slot <= 63):
+        raise ValueError(f'Template slot must be 0-63, got {slot}')
 
     request = _build_dump_request(_TEMPLATE_GROUP,
                                   _TEMPLATE_SLOT_OFFSET + slot)
