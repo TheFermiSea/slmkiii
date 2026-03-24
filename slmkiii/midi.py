@@ -214,7 +214,35 @@ def push_template(template, slot: int | None = None,
             _do_push(conn)
 
 
-def pull_template(slot: int | None = None,
+def _build_dump_request(group: int, slot: int) -> bytes:
+    """Build a SysEx dump request message.
+
+    The SL MkIII dump request format (reverse-engineered from Novation Components):
+        F0 00 20 29 02 0A 03 01 00 00 00 00 00 00 00 00 [group] [slot] 02 F7
+
+    The trailing 0x02 means "read/request" (vs 0x01 for write/data).
+
+    Groups:
+        0x01: Sessions (slots 0x00-0x3F = 64 sessions)
+        0x02: Templates (slots 0x00-0x3F = up to 64 templates)
+    """
+    return _SYSEX_HEADER_BYTES + bytes([
+        SYSEX_BLOCK_INIT,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # 8 zero bytes
+        group, slot,
+        0x02,  # read request
+        SYSEX_END,
+    ])
+
+
+# Template slots in the SL MkIII are in group 0x02.
+# The device has 8 template slots mapped to group-2 slot indices.
+# From sniffed traffic, templates appear at slots 0x38-0x3F in group 0x02.
+_TEMPLATE_GROUP = 0x02
+_TEMPLATE_SLOT_OFFSET = 0x38  # Template 0 = group 2, slot 0x38
+
+
+def pull_template(slot: int = 0,
                   connection: MidiConnection | None = None,
                   timeout: float = 10.0):
     """Request and receive a template dump from the SL MkIII.
@@ -223,8 +251,7 @@ def pull_template(slot: int | None = None,
     returning a Template object.
 
     Args:
-        slot: Template slot to pull (0-7). If None, requests the
-              currently active template.
+        slot: Template slot to pull (0-7).
         connection: An open MidiConnection. If None, auto-discovers.
         timeout: Seconds to wait for the dump response.
 
@@ -236,18 +263,11 @@ def pull_template(slot: int | None = None,
         ErrorMidiDeviceNotFound: If no SL MkIII is detected.
         TimeoutError: If no response is received within timeout.
     """
-    if slot is not None and not (0 <= slot <= 7):
+    if not (0 <= slot <= 7):
         raise ValueError(f'Template slot must be 0-7, got {slot}')
 
-    # Build the dump request SysEx message.
-    # _SYSEX_HEADER_BYTES already starts with F0 (240), so don't add another.
-    # Header + BLOCK_INIT (0x01) signals a template dump request.
-    # The slot byte follows (0x00-0x07, or omitted for current).
-    request = _SYSEX_HEADER_BYTES
-    request += bytes([SYSEX_BLOCK_INIT])
-    if slot is not None:
-        request += bytes([slot])
-    request += bytes([SYSEX_END])
+    request = _build_dump_request(_TEMPLATE_GROUP,
+                                  _TEMPLATE_SLOT_OFFSET + slot)
 
     def _do_pull(conn):
         # Flush any pending messages
