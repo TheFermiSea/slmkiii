@@ -43,7 +43,7 @@ class Button(Input):
             data['lsb_index'],
         )
         if extend is False:
-            self._data = self._data.ljust(self.length, '\0')
+            self._data = self._data.ljust(self.length, b'\0')
 
     def export_dict(self):
         data = super(Button, self).export_dict()

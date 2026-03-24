@@ -12,7 +12,7 @@ class Knob(Input):
         self.pivot = self.data(16, 2)
         self.step = self.data(18)
         self.resolution = self.data(19, 2)
-        self.channel = self._channel_wrapper(22)
+        self.channel = self._channel_wrapper(21)
         self.from_value = self.data(22, 2)
         self.to_value = self.data(24, 2)
 
@@ -31,7 +31,7 @@ class Knob(Input):
             data['from_value'],
             data['to_value'],
         )
-        self._data = self._data.ljust(self.length, '\0')
+        self._data = self._data.ljust(self.length, b'\0')
 
     def export_dict(self):
         data = super(Knob, self).export_dict()

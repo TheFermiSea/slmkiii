@@ -15,18 +15,18 @@ def bytes_to_nibbles(data):
     nibbles = [0] * 8
     for ofst in range(8):
         nibbles[ofst] = data >> 4 * (7 - ofst) & 15
-    return ''.join([chr(x) for x in nibbles])
+    return bytes(nibbles)
 
 
 def nibbles_to_bytes(data):
     output = 0
-    for idx, char in enumerate(data):
-        output += ord(char) * pow(16, 7 - idx)
+    for idx, val in enumerate(data):
+        output += val * pow(16, 7 - idx)
     return (output % 0x100000000) >> 0
 
 
 def seven_to_eight(data):
-    raw = [ord(x) for x in data]
+    raw = list(data)
     result = []
     offset = 0
     while offset < len(raw):
@@ -36,7 +36,7 @@ def seven_to_eight(data):
             eights[idx] += (((chunk[0] & 1 << idx) >> idx) << 7)
         result += eights
         offset += 8
-    return ''.join([chr(x) for x in result])
+    return bytes(result)
 
 
 def eight_to_seven(data):
@@ -47,10 +47,10 @@ def eight_to_seven(data):
         result[eight_offset] = 0
         for incr in range(7):
             if seven_offset + incr < len(data):
-                char = ord(data[seven_offset + incr])
+                char = data[seven_offset + incr]
                 result[eight_offset + incr + 1] = 127 & char
             sevens = (128 & char) >> 7 - incr
             result[eight_offset] |= sevens
         eight_offset += 8
         seven_offset += 7
-    return ''.join([chr(x) for x in result])
+    return bytes(result)

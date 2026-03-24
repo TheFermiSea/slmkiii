@@ -18,13 +18,14 @@ class Template():
 
         if data is None:
             self._new()
-        elif len(data) == 3408:
-            self._open_raw(data)
-        elif len(data) == 4214:
-            self._open_sysex(None, raw=data)
-        elif data.find('\0') != -1:
-            raise slmkiii.errors.ErrorUnknownData()
-        elif os.path.isfile(data):
+        elif isinstance(data, (bytes, bytearray)):
+            if len(data) == 3408:
+                self._open_raw(data)
+            elif len(data) == 4214:
+                self._open_sysex(None, raw=data)
+            else:
+                raise slmkiii.errors.ErrorUnknownData()
+        elif isinstance(data, str) and os.path.isfile(data):
             self._open_file(data)
         else:
             raise slmkiii.errors.ErrorUnknownData()
@@ -42,7 +43,7 @@ class Template():
         self._data_to_raw(data)
 
     def _open_json(self, filename):
-        with open(filename, 'rb') as jsonfile:
+        with open(filename, 'r') as jsonfile:
             data = self.patch_defaults(json.load(jsonfile))
         self._data_to_raw(data)
 
@@ -52,7 +53,8 @@ class Template():
             raise slmkiii.errors.ErrorUnknownVersion(data['version'])
 
         # Header
-        raw = struct.pack('>4s16s', '\x50\x0d\x00\x00', str(data['name']))
+        name_bytes = data['name'].encode('ascii', errors='replace')[:16].ljust(16, b'\0')
+        raw = struct.pack('>4s16s', b'\x50\x0d\x00\x00', name_bytes)
 
         for sdata in sections:
             for item in data[sdata['name']]:
@@ -66,11 +68,11 @@ class Template():
                 raw = sysexfile.read()
 
         checksum = 0
-        data = ''
-        for chunk in raw[1:-1].split('\xf7\xf0'):
-            block_type = ord(chunk[6])
+        data = b''
+        for chunk in raw[1:-1].split(b'\xf7\xf0'):
+            block_type = chunk[6]
             if block_type == 1:
-                data = ''
+                data = b''
             elif block_type == 2:
                 raw_chunk = utils.seven_to_eight(chunk[17:])
                 data += raw_chunk
@@ -85,7 +87,7 @@ class Template():
         block_length = 44
         self._data = data
         self._header = self._data[:ofst]
-        self.name = self._header[4:17].rstrip('\0').rstrip()
+        self.name = self._header[4:17].rstrip(b'\0').rstrip().decode('ascii', errors='replace')
         self._body = self._data[ofst:]
 
         for sdata in sections:
@@ -120,6 +122,17 @@ class Template():
                 data[k] = defaults[k]
         return data
 
+    def _rebuild(self):
+        """Rebuild raw _data from current control attributes."""
+        name_bytes = self.name.encode('ascii', errors='replace')[:16].ljust(16, b'\0')
+        raw = struct.pack('>4s16s', b'\x50\x0d\x00\x00', name_bytes)
+        for sdata in sections:
+            for item in getattr(self, sdata['name']):
+                d = item.export_dict()
+                rebuilt = sdata['class'](d)
+                raw += rebuilt._data
+        self._data = raw
+
     def save(self, filename, minify=False, overwrite=False):
         ftype = utils.file_type(filename)
         if overwrite is False:
@@ -131,6 +144,8 @@ class Template():
             self.export_sysex(filename)
 
     def export_sysex(self, filename=None):
+        self._rebuild()
+
         header = struct.pack('>7B', 240, 0, 32, 41, 2, 10, 3)
         data = header + struct.pack('>B2L4B', 1, 0, 0, 2, 0, 1, 247)
 
@@ -190,7 +205,7 @@ class Template():
                 data[sdata['name']] = new_structure
 
         if filename is not None:
-            with open(filename, 'wb') as jsonfile:
+            with open(filename, 'w') as jsonfile:
                 json.dump(data,
                           jsonfile,
                           indent=4,

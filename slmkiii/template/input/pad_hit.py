@@ -18,7 +18,7 @@ class PadHit(Button):
             data['min_velocity'],
             data['range_method'],
         )
-        self._data = self._data.ljust(self.length, '\0')
+        self._data = self._data.ljust(self.length, b'\0')
 
     def export_dict(self):
         data = super(PadHit, self).export_dict()
