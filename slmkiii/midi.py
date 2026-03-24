@@ -172,7 +172,8 @@ class MidiConnection:
 
 
 # SL MkIII SysEx protocol constants
-# Template dump request: header + 0x01 (init block type) + slot + F7
+# SYSEX_HEADER includes the F0 start byte as byte 0 (240).
+# _SYSEX_HEADER_BYTES packs the full header for building complete SysEx messages.
 _SYSEX_HEADER_BYTES = struct.pack('>7B', *SYSEX_HEADER)
 
 
@@ -239,9 +240,10 @@ def pull_template(slot: int | None = None,
         raise ValueError(f'Template slot must be 0-7, got {slot}')
 
     # Build the dump request SysEx message.
+    # _SYSEX_HEADER_BYTES already starts with F0 (240), so don't add another.
     # Header + BLOCK_INIT (0x01) signals a template dump request.
     # The slot byte follows (0x00-0x07, or omitted for current).
-    request = bytes([0xF0]) + _SYSEX_HEADER_BYTES
+    request = _SYSEX_HEADER_BYTES
     request += bytes([SYSEX_BLOCK_INIT])
     if slot is not None:
         request += bytes([slot])
