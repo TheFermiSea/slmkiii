@@ -64,8 +64,8 @@ def _decode_keyed_archiver(data: bytes) -> dict:
 # ---------------------------------------------------------------------------
 
 # MIDI message types used in AUM's specState
-MSG_TYPE_NOTE = 0
-MSG_TYPE_CC = 1
+MSG_TYPE_CC = 0
+MSG_TYPE_NOTE = 1
 MSG_TYPE_PROGRAM_CHANGE = 2
 MSG_TYPE_PITCH_BEND = 3
 MSG_TYPE_CHANNEL_PRESSURE = 4
@@ -159,7 +159,7 @@ class _ArchiverBuilder:
         self._class_cache[classname] = uid
         return uid
 
-    def encode_value(self, val) -> plistlib.UID:
+    def encode_value(self, val, *, mutable_dict: bool = False) -> plistlib.UID:
         """Encode a Python value as an NSKeyedArchiver object."""
         if val is None:
             return plistlib.UID(0)  # $null
@@ -170,25 +170,29 @@ class _ArchiverBuilder:
         elif isinstance(val, str):
             return self._add_object(val)
         elif isinstance(val, dict):
-            return self._encode_dict(val)
+            return self._encode_dict(val, mutable=mutable_dict)
         elif isinstance(val, list):
             return self._encode_array(val)
         else:
             return self._add_object(val)
 
-    def _encode_dict(self, d: dict) -> plistlib.UID:
+    def _encode_dict(self, d: dict, *, mutable: bool = False) -> plistlib.UID:
         key_uids = []
         val_uids = []
         for k, v in d.items():
             key_uids.append(self.encode_value(k))
             val_uids.append(self.encode_value(v))
 
+        if mutable:
+            class_uid = self._get_class_uid(
+                'NSMutableDictionary',
+                ['NSMutableDictionary', 'NSDictionary', 'NSObject'])
+        else:
+            class_uid = self._get_class_uid('NSDictionary')
         obj = {
             'NS.keys': key_uids,
             'NS.objects': val_uids,
-            '$class': self._get_class_uid(
-                'NSMutableDictionary',
-                ['NSMutableDictionary', 'NSDictionary', 'NSObject']),
+            '$class': class_uid,
         }
         return self._add_object(obj)
 
@@ -203,7 +207,7 @@ class _ArchiverBuilder:
         return self._add_object(obj)
 
     def build(self, root) -> bytes:
-        root_uid = self.encode_value(root)
+        root_uid = self.encode_value(root, mutable_dict=True)
         plist = {
             '$archiver': 'NSKeyedArchiver',
             '$version': 100000,

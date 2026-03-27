@@ -26,7 +26,7 @@ class TestReadMidimap(unittest.TestCase):
         toggle_play = next(
             m for m in result['mappings'] if m.parameter_name == 'Toggle Play')
         self.assertEqual(toggle_play.cc_number, 80)
-        self.assertEqual(toggle_play.msg_type, MSG_TYPE_CC)
+        self.assertEqual(toggle_play.msg_type, MSG_TYPE_NOTE)
         self.assertFalse(toggle_play.enabled)
 
     def test_read_ruismaker(self):
@@ -40,7 +40,7 @@ class TestReadMidimap(unittest.TestCase):
         self.assertEqual(len(instruments), 8)
         for m in instruments:
             self.assertTrue(m.enabled)
-            self.assertEqual(m.msg_type, MSG_TYPE_CC)
+            self.assertEqual(m.msg_type, MSG_TYPE_NOTE)
 
     def test_read_ruismaker_cc_numbers(self):
         result = read_aum_midimap(RUISMAKER_MAP)
