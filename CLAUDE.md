@@ -4,127 +4,125 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-libslmkiii is a Python library for programmatically creating, editing, and converting Novation SL MkIII MIDI controller templates. It handles SysEx binary encoding/decoding and JSON serialization. The companion `aum_suite.py` generates a 17-template suite for controlling iOS music apps through AUM.
+This repository contains three packages for MIDI control surface management:
 
-This is a fork of `inno/slmkiii`, ported to Python 3.12+.
+1. **`slmkiii/`** — Standalone library for Novation SL MkIII hardware: template creation, SysEx encoding, InControl API (LEDs/screens/input), MIDI I/O
+2. **`aum_tools.py`** — Standalone AUM (Kymatica) file format decoder: reads/writes `.aumproj` sessions and `.aum_midimap` MIDI mappings (NSKeyedArchiver binary plists)
+3. **`controlmap/`** — Modular control surface mapping framework: declaratively maps controller hardware to DAW plugin parameters, generating matched output files for any controller+target combination
+
+The companion `aum_suite.py` generates a 17-template suite for controlling iOS music apps through AUM.
+
+Originally a fork of `inno/slmkiii`, ported to Python 3.12+.
 
 ## Commands
 
 ```bash
-python -m unittest tests                              # Run all tests (27 template + 52 incontrol)
-python -m unittest tests.TestTemplate.test_create_new  # Run a single test
-coverage run -m unittest tests && coverage report -m   # Coverage report
-uv run slmkiii --help                                  # CLI tool
-uv run slmkiii inspect file.syx                        # Inspect a template
-uv run slmkiii grid file.syx                           # Visual grid layout
-uv run slmkiii diff a.syx b.json                       # Compare templates
-uv run slmkiii convert in.syx out.json                 # Format conversion
-uv run slmkiii push file.syx --slot 1                  # Push to SL MkIII
-uv run slmkiii ports                                   # List MIDI ports
-python aum_suite.py --list                             # List all AUM templates
-python aum_suite.py -o output/                         # Generate templates
+# Tests
+uv run python -m unittest tests                         # slmkiii tests (27 template + 52 incontrol)
+python3 -m unittest discover -s tests -p "test_aum*"    # AUM tools tests (16)
+uv run python -m unittest tests.test_controlmap         # controlmap tests
+
+# CLI
+uv run slmkiii --help                                   # SL MkIII CLI
+uv run slmkiii inspect file.syx                         # Inspect template
+uv run slmkiii grid file.syx                            # Visual grid layout
+uv run slmkiii diff a.syx b.json                        # Compare templates
+uv run slmkiii convert in.syx out.json                  # Format conversion
+uv run slmkiii push file.syx --slot 1                   # Push to SL MkIII
+uv run slmkiii ports                                    # List MIDI ports
+
+# AUM tools
+python3 aum_tools.py inspect-mapping file.aum_midimap   # Decode AUM MIDI mapping
+python3 aum_tools.py inspect-session file.aumproj        # Decode AUM session
+
+# AUM Suite
+python aum_suite.py --list                               # List all AUM templates
+python aum_suite.py -o output/                           # Generate templates
+
+# MIDI bridge
+uv run python -m controlmap.bridge list                  # List MIDI ports
+uv run python -m controlmap.bridge run -i "SL MkIII" -o "iPad"  # Forward MIDI
 ```
 
-## Architecture
+## Package Architecture
 
-The library has one public entry point: `slmkiii.Template`.
+### `slmkiii/` — SL MkIII Hardware Library
 
 **Template lifecycle:**
-1. `Template()` — creates from defaults via `patch_defaults()` → `_data_to_raw()` → `_open_raw()`
-2. `Template('file.syx')` or `Template('file.json')` — parses existing template
-3. User modifies control attributes directly or uses `configure_cc()`/`configure_note()` helpers
-4. `template.save('out.syx')` — calls `_rebuild()` to serialize attributes back to binary, then encodes as SysEx
+1. `Template()` — creates from defaults
+2. `Template('file.syx')` or `Template('file.json')` — parses existing
+3. Modify control attributes or use `configure_cc()`/`configure_note()`
+4. `template.save('out.syx')` — serialize and encode
 
 **Control type hierarchy** (`slmkiii/template/input/`):
-- `Input` — base class; 44-byte binary block, validated properties (`enabled`/`name`/`message_type`/`channel`), `configure_cc()`/`configure_note()` helpers, `__repr__`/`__eq__`
-- `Button(Input)` — behavior, action, first_param..fourth_param, step (signed 16-bit via `struct.pack('>h')`), wrap, pair, channel at byte 22
-- `PadHit(Button)` — adds max_velocity, min_velocity, range_method
-- `Fader(Input)` — channel at byte 12, from_value, to_value, first_param (eight_bit flag), second_param (CC index)
-- `Knob(Input)` — first_param (CC index), channel at byte 21, from_value, to_value, resolution, pivot
-- `RangeControl(Input)` — optional base for Fader/Knob providing from_value/to_value (not yet wired in)
+- `Input` — base class; 44-byte binary block
+- `Button(Input)` — channel at byte 22
+- `PadHit(Button)` — velocity, range
+- `Fader(Input)` — channel at byte 12, CC in `second_param`
+- `Knob(Input)` — CC in `first_param`, channel at byte 21
 
-All numeric properties have validated setters (e.g., `first_param` must be 0-65535 for shorts, 0-255 for bytes, channel must be 1-16 or `'default'`).
+**Section layout**: 77 controls = 16 buttons + 16 knobs + 8 faders + 2 wheels + 2 pedals + 1 footswitch + 16 pad_hits + 16 pad_pressures
 
-**Section layout** (`slmkiii/template/sections.py`): Each template contains 77 controls totaling 3408 bytes (+ 20-byte header):
-- 16 buttons, 16 knobs, 8 faders, 2 wheels (Fader), 2 pedals (Fader), 1 footswitch (Button), 16 pad_hits, 16 pad_pressures (Fader)
+**InControl API** (`slmkiii/incontrol.py`): Real-time LED/screen/input control via InControl USB port. SysEx header `F0 00 20 29 02 0A 01`.
+- `InControlConnection` — context manager
+- `LED` / `Control` / `PadNote` — enums for hardware indices
+- LEDs: `set_led()`, `flash_led()`, `pulse_led()`, `set_led_rgb()`
+- Screens: `set_layout()`, `set_text()`, `set_color()`, `set_value()`
+- Input: `poll_input()` → decoded events
+- Notifications: `notify(line1, line2)`
 
-**Named constants** in `template/__init__.py`: `RAW_TEMPLATE_SIZE`, `SYSEX_TEMPLATE_SIZE`, `TEMPLATE_HEADER_MAGIC`, `CONTROL_BLOCK_SIZE`, `HEADER_SIZE`, `SYSEX_HEADER`, `SYSEX_END`, `SYSEX_BLOCK_INIT/DATA/CRC`.
+### `aum_tools.py` — AUM File Format Tools
 
-**SysEx encoding** (`slmkiii/utils.py`): Raw 8-bit data is encoded to 7-bit MIDI-safe format via `eight_to_seven()`/`seven_to_eight()`, with CRC32 checksums stored as nibble bytes.
+Reads/writes AUM's NSKeyedArchiver binary plist files:
+- `read_aum_midimap(path)` → `{collection_name, mappings: [AumMidiMapping], raw}`
+- `write_aum_midimap(collection_name, mappings, path)` — generates valid `.aum_midimap`
+- `read_aum_session(path)` → `AumSession` with channels, plugins (AU FourCC IDs)
+- `_decode_keyed_archiver(data)` — generic NSKeyedArchiver decoder
+- `_ArchiverBuilder` — NSKeyedArchiver encoder
+
+**AUM MIDI mapping format**: `specState.type`: 0=CC, 1=Note, 2=Program Change. Channel is 0-indexed. Parameter paths use dot-delimited keys (e.g., `drumProtoParams.drum1params.drum1cutoff`).
+
+### `controlmap/` — Mapping Framework
+
+**Pipeline**: `MappingSpec → compile_mapping() → ResolvedMapping → Emitters → output files`
+
+**Core model** (`controlmap/model.py`):
+- `ControlType` / `ParamType` — enums for control and parameter types
+- `ControlSlot` — physical control on a controller
+- `ParameterRef` — reference to a plugin parameter
+- `Binding` — control-to-parameter with MIDI details
+- `Page` / `PageSet` — paged control assignments
+- `MappingSpec` — declarative input to compile_mapping()
+- `ResolvedMapping` — fully resolved output
+
+**Controller profiles** (`controlmap/controllers/`): JSON files in `data/` describe hardware capabilities. `load_controller(id)` loads and caches.
+
+**Plugin parameter DB** (`controlmap/plugins/`): JSON files in `data/` with all mappable parameters. `harvest.py` extracts params from AUM `.aum_midimap` files. `load_plugin(id)` loads and caches. `PluginParamDB.select(patterns)` uses fnmatch glob patterns.
+
+**Strategy** (`controlmap/strategy.py`): `AffinityMapper` assigns params to slots by type affinity (CONTINUOUS→knobs/faders, TOGGLE→buttons, TRIGGER→pads).
+
+**Paging** (`controlmap/paging.py`): `Paginator` distributes bindings across pages with group coherence and priority ordering.
+
+**CC allocation** (`controlmap/cc_alloc.py`): `CCAllocator` assigns CC 20-119, tracks (channel, cc) uniqueness, supports channel-per-page isolation.
+
+**Emitters** (`controlmap/emitters/`):
+- `SlMkIIIEmitter` — generates `.syx` via `slmkiii.Template`
+- `AumEmitter` — generates `.aum_midimap` via `aum_tools`
+
+**Bridge** (`controlmap/bridge.py`): MIDI port forwarder using mido.
 
 ## Key Conventions
 
-- Channel values are 1-indexed in the Python API (matching MIDI convention), stored 0-indexed in binary. The special value 127 means `'default'`.
-- Control names are limited to 9 bytes (SL MkIII display width). The `name` setter auto-truncates.
-- `from_dict()` returns a copy of the dict (does not mutate the caller's dict). Subclasses chain via `data = super().from_dict(data)`.
-- The `extend` parameter in `Button.from_dict()` suppresses zero-padding so `PadHit` can append additional fields.
-- Fader is reused for wheels, pedals, and pad_pressures — they share the same binary layout.
-- `save()` defaults to `overwrite=True` and auto-creates parent directories.
-- `patch_defaults()` uses `copy.deepcopy()` to protect the global defaults dict from mutation.
+- Channel values: 1-indexed in Python API, 0-indexed in binary/AUM
+- Control names: max 9 chars (SL MkIII display width)
+- AUM collection names: `"PluginName.AU-<hex>"` where hex = manufacturer+subtype+type as ASCII hex
+- AudioComponentDescription: 20 bytes, FourCC fields are little-endian
+- Template slots: 1-indexed user-facing, 0-indexed internal
+- `slmkiii/` has no dependency on `controlmap/` or `aum_tools.py`
+- `controlmap/` depends on both `slmkiii/` and `aum_tools.py`
 
-## Template API Quick Reference
+## Device Communication
 
-```python
-t = slmkiii.Template()                          # New blank template
-t.buttons[0].configure_note(channel=1, note=60) # Set as note trigger
-t.faders[0].configure_cc(channel=1, cc_num=20)  # Set as CC fader
-t.all_controls()                                 # Flat list of all 77 controls
-t.find_controls(enabled=True, message_type_name='CC')  # Filter controls
-t.validate()                                     # Check for config errors
-t.enable_all(section='buttons')                  # Enable all buttons
-t.clone()                                        # Deep copy
-t.summary()                                      # Human-readable overview
-t.to_grid()                                      # ASCII art hardware layout
-t.diff(other)                                    # List of field differences
-t.diff_summary(other)                            # Human-readable diff
-len(t)                                           # 77
-for control in t: ...                            # Iterate all controls
-t['buttons']                                     # Section access by name
-t.metadata = {'author': 'Me'}                    # Persists in JSON exports
-```
+**SL MkIII**: Two USB MIDI ports — regular MIDI (templates, `midi.py`) and InControl (LEDs/screens, `incontrol.py`). Template push via SysEx blocks with 20ms inter-block delay.
 
-## InControl API (`slmkiii/incontrol.py`)
-
-Real-time control of LEDs, screens, and input via the documented InControl API (Novation Programmer's Reference Guide). Uses the **InControl USB port** (separate from the template MIDI port). SysEx header: `F0 00 20 29 02 0A 01` (vs `0x03` for templates).
-
-**Key classes:**
-- `InControlConnection` — context manager for bidirectional InControl MIDI I/O
-- `LED` — enum of all addressable LED indices (pads, faders, buttons, transport, keys)
-- `Control` — enum of all input control CC/Note indices
-
-**Capabilities:**
-- LEDs: `set_led(index, color)`, `flash_led()`, `pulse_led()`, `set_led_rgb(index, r, g, b)`
-- Screens: `set_layout(LAYOUT_KNOB)`, `set_text(col, field, text)`, `set_color()`, `set_value()`, `set_color_rgb()`
-- Notifications: `notify(line1, line2)` — temporary center screen popup
-- Input: `poll_input()` returns decoded events (button/knob/fader/pad with type-specific fields)
-- Device inquiry: `device_inquiry()` returns firmware version
-- Helpers: `label_knob(n, name, value)`, `label_fader(n, name)`
-
-```python
-from slmkiii.incontrol import InControlConnection, LED, LAYOUT_KNOB
-
-with InControlConnection() as ic:
-    ic.set_layout(LAYOUT_KNOB)
-    ic.set_led(LED.PAD_1, 72)                # Red pad
-    ic.set_led_rgb(LED.FADER_1, 0, 127, 0)   # Green fader LED
-    ic.set_text(0, 0, 'Filter')              # Label knob 1
-    ic.set_value(0, 0, 64)                   # Knob icon at 50%
-    ic.notify('Hello!', 'World')             # Center screen popup
-    events = ic.poll_input()                  # Read button/knob/fader/pad events
-```
-
-## MIDI I/O (`slmkiii/midi.py`)
-
-`find_slmkiii()` scans MIDI ports, `MidiConnection` is a context manager for send/receive, `push_template()` sends a template to the device (splits into SysEx blocks with 20ms inter-block delay), `pull_template()` sends a dump request (device response depends on Novation's undocumented protocol). The SL MkIII exposes multiple MIDI ports; template SysEx operations use the InControl port.
-
-## CLI (`slmkiii/cli.py`)
-
-Entry point: `slmkiii = slmkiii.cli:main`. Subcommands: convert, inspect, grid, diff, validate, push, pull, ports. Slot arguments are 1-indexed (user-facing) converted to 0-indexed internally.
-
-## MCP Server (`slmkiii/mcp_server.py`)
-
-FastMCP server with 12 tools for AI agent integration. Manages a session-scoped `_current_template`. Run with `uv run python -m slmkiii.mcp_server`. The `mcp` dependency is optional (`pip install slmkiii[mcp]`).
-
-## AUM Suite
-
-`aum_suite.py` generates 17 SysEx templates using MIDI channel isolation (each app gets a dedicated channel). Templates T01-T04 are Battalion core, T05-T12 are per-voice chromatic, T13-T16 are synth apps (King of FM, Animoog, Drambo, Audulus), T17 is AUM mixer. See `AUM_SUITE.md` for full documentation with visual grid layouts.
+**iPad/AUM**: Files pushed via `pymobiledevice3` HouseArrestService (documents_only=True, root `/Documents`). MIDI forwarded via iDAM (Mac→iPad USB) or network MIDI. On Mac the port is named `iPad`; on iPad it appears as `IDAM MIDI Host`.

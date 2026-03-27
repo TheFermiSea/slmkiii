@@ -5,9 +5,7 @@ declarative mapping specifications.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-from controlmap.model import (
+from controlmap.model import (  # noqa: F401 — re-exported for public API
     MappingSpec, ResolvedMapping, Binding, Page, PageSet,
     ControlSlot, ParameterRef, ControlType, ParamType,
 )

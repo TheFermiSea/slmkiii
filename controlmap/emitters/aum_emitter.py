@@ -19,7 +19,6 @@ nesting level's key includes the full path prefix.
 """
 from __future__ import annotations
 
-import plistlib
 from pathlib import Path
 
 from aum_tools import MSG_TYPE_CC, MSG_TYPE_NOTE, _ArchiverBuilder

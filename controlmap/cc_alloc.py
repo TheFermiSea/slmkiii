@@ -6,7 +6,6 @@ from controlmap.model import PageSet
 # CC ranges to use for allocation
 _CC_MIN = 20    # Avoid 0-19 (bank select, modulation, breath, etc.)
 _CC_MAX = 119   # Avoid 120-127 (channel mode messages)
-_CC_RANGE = range(_CC_MIN, _CC_MAX + 1)
 
 
 class CCAllocator:

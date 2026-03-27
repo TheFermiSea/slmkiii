@@ -29,14 +29,6 @@ class Paginator:
         if not assignments:
             return PageSet(pages=[])
 
-        # Group assignments by slot group for counting capacity
-        slots_per_group: dict[str, int] = {}
-        for slot in all_slots:
-            slots_per_group[slot.group] = slots_per_group.get(slot.group, 0) + 1
-
-        # Total slots per page = sum of all groups
-        total_slots = sum(slots_per_group.values())
-
         # Sort assignments by priority (highest first), then by group for coherence
         sorted_assignments = sorted(
             assignments,

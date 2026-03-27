@@ -1,13 +1,28 @@
+# Python
 .Python
-.coverage
 *.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
 bin/
 include/
 lib/
 
-# Beads / Dolt files (added by bd init)
+# Testing / Coverage
+.coverage
+htmlcov/
+
+# Generated output
+output/
+aum_samples/generated/
+
+# Beads / Dolt
 .dolt/
 *.db
 .beads-credential-key
-output/
-aum_samples/generated/
+
+# IDE
+.vscode/
+.idea/
+*.swp
