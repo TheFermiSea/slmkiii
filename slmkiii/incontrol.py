@@ -59,7 +59,9 @@ COLUMN_CENTER = 8
 
 # Port name substrings for InControl detection
 _INCONTROL_IDENTIFIERS = ('InControl', 'MIDIIN2', 'MIDIOUT2')
-_SL_MKIII_IDENTIFIERS = ('SL MkIII',)
+
+# Reuse device identifier from midi.py to avoid duplication
+from slmkiii.midi import _SL_MKIII_IDENTIFIERS
 
 # Device inquiry (standard MIDI)
 _DEVICE_INQUIRY = bytes([0xF0, 0x7E, 0x0A, 0x06, 0x01, 0xF7])
@@ -148,9 +150,10 @@ class LED(enum.IntEnum):
     DUPLICATE = 0x42
     CLEAR = 0x43
 
-    # Scene launch
+    # Scene launch (SCENE_LAUNCH_BOTTOM aliases SOFT_BUTTON_1 — same
+    # physical LED, same SysEx index per Novation's programmer's guide)
     SCENE_LAUNCH_TOP = 0x03
-    SCENE_LAUNCH_BOTTOM = 0x04  # Note: same as SOFT_BUTTON_1 in CC
+    SCENE_LAUNCH_BOTTOM = 0x04
 
     # Track left/right
     TRACK_LEFT = 0x1E
@@ -245,7 +248,15 @@ class Control(enum.IntEnum):
     LOOP = 0x74
     RECORD = 0x75
 
-    # Pads (Note messages, not CC)
+
+class PadNote(enum.IntEnum):
+    """Note indices for pad input messages.
+
+    Pads use Note On/Off (not CC), so their indices occupy a separate
+    namespace from Control CC indices. Values 0x60-0x6F overlap with
+    Control.TRACK_LEFT/RIGHT by design — they are distinguished by
+    MIDI message type (Note vs CC).
+    """
     PAD_1 = 0x60
     PAD_2 = 0x61
     PAD_3 = 0x62
@@ -264,7 +275,6 @@ class Control(enum.IntEnum):
     PAD_16 = 0x6F
 
 
-# Pad CC indices are Note messages, the rest are CC.
 # Pad notes: 96-119 (0x60-0x77 in the indices table)
 _PAD_NOTE_RANGE = range(0x60, 0x78)
 
@@ -410,14 +420,6 @@ class InControlConnection:
         msg = mido.Message('sysex', data=list(payload))
         self._output.send(msg)
 
-    def _send_cc(self, channel: int, control: int, value: int):
-        """Send a Control Change message."""
-        if self._output is None:
-            raise RuntimeError('InControl connection is not open')
-        msg = mido.Message('control_change', channel=channel,
-                           control=control, value=value)
-        self._output.send(msg)
-
     def _send_note_on(self, channel: int, note: int, velocity: int):
         """Send a Note On message."""
         if self._output is None:
@@ -428,45 +430,38 @@ class InControlConnection:
 
     # -- LED control -----------------------------------------------------
 
+    def _set_led_channel(self, channel: int, index: int, color: int):
+        """Send an LED color message on the specified MIDI channel."""
+        if not (0 <= color <= 127):
+            raise ValueError(f'Color index must be 0-127, got {color}')
+        self._send_note_on(channel, index, color)
+
     def set_led(self, index: int, color: int):
         """Set an LED to a solid color from the 128-color palette.
 
         Args:
             index: LED index (use LED enum values).
-            color: Color index 0-127 from the colour table.
-                   0 = off (black).
+            color: Color index 0-127 from the colour table. 0 = off.
         """
-        if not (0 <= color <= 127):
-            raise ValueError(f'Color index must be 0-127, got {color}')
-        # Solid color: Note On on Channel 16
-        self._send_note_on(_LED_CH_SOLID, index, color)
+        self._set_led_channel(_LED_CH_SOLID, index, color)
 
     def flash_led(self, index: int, color: int):
         """Set an LED to flash between its solid color and a second color.
-
-        The LED alternates between the previously set solid color and this
-        flash color with a 50% duty cycle synced to tempo.
 
         Args:
             index: LED index (use LED enum values).
             color: Flash color index 0-127 from the colour table.
         """
-        if not (0 <= color <= 127):
-            raise ValueError(f'Color index must be 0-127, got {color}')
-        self._send_note_on(_LED_CH_FLASH, index, color)
+        self._set_led_channel(_LED_CH_FLASH, index, color)
 
     def pulse_led(self, index: int, color: int):
         """Set an LED to pulse (ramp up/down) a single color.
-
-        Cycles between 25% and 100% brightness synced to tempo.
 
         Args:
             index: LED index (use LED enum values).
             color: Pulse color index 0-127 from the colour table.
         """
-        if not (0 <= color <= 127):
-            raise ValueError(f'Color index must be 0-127, got {color}')
-        self._send_note_on(_LED_CH_PULSE, index, color)
+        self._set_led_channel(_LED_CH_PULSE, index, color)
 
     def set_led_rgb(self, index: int, r: int, g: int, b: int,
                     behavior: int = LED_SOLID):
@@ -589,7 +584,7 @@ class InControlConnection:
         ]))
 
     def set_screen_properties(self, column: int,
-                              properties: list[tuple[int, int, bytes | int]]):
+                              properties: list[tuple[int, int, bytes | int | tuple[int, ...]]]):
         """Set multiple properties on a screen column in a single SysEx message.
 
         This batches updates so they take effect simultaneously.

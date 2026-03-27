@@ -19,6 +19,10 @@ from pathlib import Path
 # NSKeyedArchiver decoding helpers
 # ---------------------------------------------------------------------------
 
+# NSKeyedArchiver always stores '$null' at $objects[0]
+_NS_NULL = '$null'
+
+
 def _resolve_uid(objects: list, val):
     """Recursively resolve NSKeyedArchiver UID references to Python objects."""
     if isinstance(val, plistlib.UID):
@@ -301,7 +305,7 @@ def _decode_fourcc_le(raw: bytes, offset: int) -> str:
     return raw[offset:offset + 4][::-1].decode('ascii', errors='replace')
 
 
-def _resolve_uid_raw(objects: list, val):
+def _deref_uid(objects: list, val):
     """Resolve UID but preserve dict structure (don't recurse into all dicts)."""
     if isinstance(val, plistlib.UID):
         return objects[val]
@@ -327,8 +331,8 @@ def read_aum_session(path: str | Path) -> AumSession:
 
     # Extract basic session info
     title_uid = root.get('title')
-    title = _resolve_uid_raw(objects, title_uid) if title_uid else ''
-    if title is None or isinstance(title, dict) or title == '$null':
+    title = _deref_uid(objects, title_uid) if title_uid else ''
+    if title is None or isinstance(title, dict) or title == _NS_NULL:
         title = ''
 
     version = root.get('version', 0)
@@ -338,32 +342,32 @@ def read_aum_session(path: str | Path) -> AumSession:
     tempo = 120.0
     transport_uid = root.get('transportClockState')
     if transport_uid:
-        transport = _resolve_uid_raw(objects, transport_uid)
+        transport = _deref_uid(objects, transport_uid)
         if isinstance(transport, dict) and 'NS.keys' in transport:
-            keys = [_resolve_uid_raw(objects, k) for k in transport['NS.keys']]
-            vals = [_resolve_uid_raw(objects, v) for v in transport['NS.objects']]
+            keys = [_deref_uid(objects, k) for k in transport['NS.keys']]
+            vals = [_deref_uid(objects, v) for v in transport['NS.objects']]
             transport_dict = dict(zip(keys, vals))
             tempo = transport_dict.get('clockTempo', 120.0)
 
     # Parse channels
     channels_uid = root.get('channels')
-    channels_arr = _resolve_uid_raw(objects, channels_uid) if channels_uid else None
+    channels_arr = _deref_uid(objects, channels_uid) if channels_uid else None
     channels = []
 
     if channels_arr and isinstance(channels_arr, dict) and 'NS.objects' in channels_arr:
         for ch_uid in channels_arr['NS.objects']:
-            ch_obj = _resolve_uid_raw(objects, ch_uid)
+            ch_obj = _deref_uid(objects, ch_uid)
             if not isinstance(ch_obj, dict):
                 continue
 
             # Determine channel type from $class
             class_uid = ch_obj.get('$class')
-            class_obj = _resolve_uid_raw(objects, class_uid) if class_uid else {}
+            class_obj = _deref_uid(objects, class_uid) if class_uid else {}
             channel_type = class_obj.get('$classname', '') if isinstance(class_obj, dict) else ''
 
             ch_title_uid = ch_obj.get('title')
-            ch_title = _resolve_uid_raw(objects, ch_title_uid) if ch_title_uid else ''
-            if ch_title is None or isinstance(ch_title, dict) or ch_title == '$null':
+            ch_title = _deref_uid(objects, ch_title_uid) if ch_title_uid else ''
+            if ch_title is None or isinstance(ch_title, dict) or ch_title == _NS_NULL:
                 ch_title = ''
 
             channel = AumChannel(
@@ -379,27 +383,27 @@ def read_aum_session(path: str | Path) -> AumSession:
     # Parse nodeArchives to discover plugins per channel
     node_archives_uid = root.get('nodeArchives')
     if node_archives_uid:
-        node_archives = _resolve_uid_raw(objects, node_archives_uid)
+        node_archives = _deref_uid(objects, node_archives_uid)
         if isinstance(node_archives, dict) and 'NS.objects' in node_archives:
             channel_node_lists = node_archives['NS.objects']
             for ch_idx, node_list_uid in enumerate(channel_node_lists):
-                node_list = _resolve_uid_raw(objects, node_list_uid)
+                node_list = _deref_uid(objects, node_list_uid)
                 if not isinstance(node_list, dict) or 'NS.objects' not in node_list:
                     continue
 
                 plugins = []
                 for node_uid in node_list['NS.objects']:
-                    node = _resolve_uid_raw(objects, node_uid)
+                    node = _deref_uid(objects, node_uid)
                     if not isinstance(node, dict):
                         continue
 
                     desc_class_uid = node.get('archiveDescClass')
-                    desc_class = _resolve_uid_raw(objects, desc_class_uid) if desc_class_uid else ''
+                    desc_class = _deref_uid(objects, desc_class_uid) if desc_class_uid else ''
                     if desc_class is None or isinstance(desc_class, dict):
                         desc_class = ''
 
                     comp_name_uid = node.get('componentName')
-                    comp_name = _resolve_uid_raw(objects, comp_name_uid) if comp_name_uid else ''
+                    comp_name = _deref_uid(objects, comp_name_uid) if comp_name_uid else ''
                     if comp_name is None or isinstance(comp_name, dict):
                         comp_name = ''
 

@@ -10,9 +10,8 @@ import mido
 
 import slmkiii.errors
 from slmkiii.incontrol import (
-    INCONTROL_SYSEX_HEADER,
     InControlConnection,
-    LED, Control,
+    LED, Control, PadNote,
     LAYOUT_EMPTY, LAYOUT_KNOB, LAYOUT_BOX,
     PROP_TEXT, PROP_COLOUR, PROP_VALUE, PROP_RGB,
     LED_SOLID, LED_FLASH, LED_PULSE,
@@ -369,7 +368,7 @@ class TestInputDecoding(unittest.TestCase):
     def test_pad_hit(self):
         with MockInControlConnection() as ic:
             msg = mido.Message('note_on', channel=15,
-                               note=Control.PAD_1, velocity=100)
+                               note=PadNote.PAD_1, velocity=100)
             ic.inject_input(msg)
             events = ic.poll_input()
             self.assertEqual(len(events), 1)
@@ -381,7 +380,7 @@ class TestInputDecoding(unittest.TestCase):
     def test_pad_release(self):
         with MockInControlConnection() as ic:
             msg = mido.Message('note_off', channel=15,
-                               note=Control.PAD_1, velocity=0)
+                               note=PadNote.PAD_1, velocity=0)
             ic.inject_input(msg)
             events = ic.poll_input()
             self.assertEqual(events[0]['velocity'], 0)
@@ -468,10 +467,10 @@ class TestControlEnum(unittest.TestCase):
             self.assertEqual(fader, 0x29 + i)
 
     def test_pads_sequential(self):
-        pads = [Control.PAD_1, Control.PAD_2, Control.PAD_3, Control.PAD_4,
-                Control.PAD_5, Control.PAD_6, Control.PAD_7, Control.PAD_8,
-                Control.PAD_9, Control.PAD_10, Control.PAD_11, Control.PAD_12,
-                Control.PAD_13, Control.PAD_14, Control.PAD_15, Control.PAD_16]
+        pads = [PadNote.PAD_1, PadNote.PAD_2, PadNote.PAD_3, PadNote.PAD_4,
+                PadNote.PAD_5, PadNote.PAD_6, PadNote.PAD_7, PadNote.PAD_8,
+                PadNote.PAD_9, PadNote.PAD_10, PadNote.PAD_11, PadNote.PAD_12,
+                PadNote.PAD_13, PadNote.PAD_14, PadNote.PAD_15, PadNote.PAD_16]
         for i, pad in enumerate(pads):
             self.assertEqual(pad, 0x60 + i)
 
