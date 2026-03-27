@@ -1,14 +1,33 @@
-"""Generate AUM .aum_midimap files from resolved mappings."""
+"""Generate AUM .aum_midimap files from resolved mappings.
+
+AUM's Channel-level mapping files have a nested structure:
+  Root:
+    _collection_map_name: "Channel"
+    Channel controls: {Volume, Pan, Mute, Solo, ...}
+    slot0: {
+      _collection_map_name: "PluginName.AU-hexid"
+      drumProtoParams: {
+        drumProtoParams.drum1params: {
+          drumProtoParams.drum1params.drum1cutoff: {specState: ...}
+        }
+      }
+    }
+    slot1: {...}
+
+The parameter paths use AUM's dot-delimited convention where each
+nesting level's key includes the full path prefix.
+"""
 from __future__ import annotations
 
+import plistlib
 from pathlib import Path
 
-from aum_tools import AumMidiMapping, write_aum_midimap, MSG_TYPE_CC, MSG_TYPE_NOTE
+from aum_tools import MSG_TYPE_CC, MSG_TYPE_NOTE, _ArchiverBuilder
 from controlmap.model import ResolvedMapping
 
 
 class AumEmitter:
-    """Generate .aum_midimap files using aum_tools."""
+    """Generate .aum_midimap files matching AUM's expected structure."""
 
     target_id = 'aum'
 
@@ -16,39 +35,72 @@ class AumEmitter:
         self,
         resolved: ResolvedMapping,
         output_dir: str | Path,
+        slot_index: int = 0,
     ) -> list[Path]:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        collection_name = resolved.metadata.get(
-            'au_identifier',
-            resolved.spec.plugin_id,
-        )
+        au_identifier = resolved.metadata.get('au_identifier', '')
 
-        # Collect all bindings across all pages
-        mappings = []
+        # Build the nested parameter dict matching AUM's structure
+        param_tree: dict = {}
         for binding in resolved.page_set.all_bindings:
             if binding.msg_type == 'note':
                 msg_type = MSG_TYPE_NOTE
-                cc = binding.midi_note
+                data1 = binding.midi_note
             else:
                 msg_type = MSG_TYPE_CC
-                cc = binding.midi_cc
+                data1 = binding.midi_cc
 
-            mappings.append(AumMidiMapping(
-                parameter_name=binding.param.param_path,
-                cc_number=cc,
-                channel=binding.midi_channel - 1,  # AUM uses 0-indexed
-                min_value=binding.min_value,
-                max_value=binding.max_value,
-                enabled=True,
-                msg_type=msg_type,
-            ))
+            entry = {
+                'min': binding.min_value,
+                'max': binding.max_value,
+                'channel': binding.midi_channel - 1,  # AUM uses 0-indexed
+                'autoToggle': False,
+                'specState': {
+                    'enabled': True,
+                    'data1': data1,
+                    'type': msg_type,
+                },
+            }
 
-        # Write the mapping file
-        safe_name = collection_name.replace('/', '_')
-        filename = f'{safe_name}.aum_midimap'
+            # Rebuild the nested hierarchy from the dot-delimited path
+            # e.g., "drumProtoParams.drum1params.drum1cutoff"
+            # becomes: param_tree["drumProtoParams"]["drumProtoParams.drum1params"]["drumProtoParams.drum1params.drum1cutoff"] = entry
+            path = binding.param.param_path
+            parts = path.split('.')
+            current = param_tree
+            for depth in range(len(parts) - 1):
+                prefix = '.'.join(parts[:depth + 1])
+                if prefix not in current:
+                    current[prefix] = {}
+                current = current[prefix]
+            current[path] = entry
+
+        # Build the slot dict
+        slot = {
+            '_collection_map_name': au_identifier,
+        }
+        slot.update(param_tree)
+
+        # Build the Channel-level root
+        root = {
+            '_collection_map_name': 'Channel',
+            '_collection_editor_states': [],
+            f'slot{slot_index}': slot,
+            'Channel controls': {
+                '_collection_map_name': 'Channel controls',
+            },
+        }
+
+        # Encode as NSKeyedArchiver plist
+        builder = _ArchiverBuilder()
+        data = builder.build(root)
+
+        filename = 'Bat Mix.aum_midimap'
         path = output_dir / filename
-        write_aum_midimap(collection_name, mappings, path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(data)
 
         return [path]
