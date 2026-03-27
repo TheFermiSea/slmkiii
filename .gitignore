@@ -9,3 +9,5 @@ lib/
 .dolt/
 *.db
 .beads-credential-key
+output/
+aum_samples/generated/

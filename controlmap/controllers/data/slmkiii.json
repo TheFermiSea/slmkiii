@@ -1,0 +1,37 @@
+{
+  "id": "slmkiii",
+  "name": "Novation SL MkIII",
+  "manufacturer": "Novation",
+  "control_groups": [
+    {
+      "name": "knobs",
+      "count": 8,
+      "control_type": "continuous",
+      "pages_hardware": 2,
+      "has_display": true,
+      "display_chars": 9
+    },
+    {
+      "name": "faders",
+      "count": 8,
+      "control_type": "continuous",
+      "pages_hardware": 1,
+      "has_display": false
+    },
+    {
+      "name": "buttons",
+      "count": 16,
+      "control_type": "momentary",
+      "pages_hardware": 2,
+      "has_display": false
+    },
+    {
+      "name": "pads",
+      "count": 16,
+      "control_type": "velocity",
+      "pages_hardware": 1,
+      "has_display": false
+    }
+  ],
+  "features": ["screens", "rgb_leds", "velocity_pads"]
+}
