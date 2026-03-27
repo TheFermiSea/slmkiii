@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from controlmap.model import (
-    Binding, ControlSlot, Page, PageSet, ParameterRef,
+    Binding, ControlSlot, MsgType, Page, PageSet, ParamType, ParameterRef,
 )
 from controlmap.plugins import PluginParam
 
@@ -76,7 +76,7 @@ class Paginator:
                 ),
                 midi_channel=0,  # filled by CCAllocator
                 midi_cc=0,       # filled by CCAllocator
-                msg_type='note' if param.param_type.name in ('TRIGGER',) else 'cc',
+                msg_type=MsgType.NOTE if param.param_type == ParamType.TRIGGER else MsgType.CC,
             ))
 
         if reserved_bindings:

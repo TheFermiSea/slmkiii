@@ -23,17 +23,22 @@ from pathlib import Path
 _NS_NULL = '$null'
 
 
-def _resolve_uid(objects: list, val):
+def _resolve_uid(objects: list, val, _seen: frozenset[int] | None = None):
     """Recursively resolve NSKeyedArchiver UID references to Python objects."""
+    if _seen is None:
+        _seen = frozenset()
     if isinstance(val, plistlib.UID):
-        return _resolve_uid(objects, objects[val])
+        uid_int = int(val)
+        if uid_int in _seen:
+            return None  # break circular reference
+        return _resolve_uid(objects, objects[val], _seen | {uid_int})
     elif isinstance(val, dict):
         if 'NS.keys' in val and 'NS.objects' in val:
-            keys = [_resolve_uid(objects, k) for k in val['NS.keys']]
-            vals = [_resolve_uid(objects, v) for v in val['NS.objects']]
+            keys = [_resolve_uid(objects, k, _seen) for k in val['NS.keys']]
+            vals = [_resolve_uid(objects, v, _seen) for v in val['NS.objects']]
             return dict(zip(keys, vals))
         elif 'NS.objects' in val:
-            return [_resolve_uid(objects, o) for o in val['NS.objects']]
+            return [_resolve_uid(objects, o, _seen) for o in val['NS.objects']]
         elif '$classname' in val or '$classes' in val:
             return None
         else:
@@ -41,15 +46,15 @@ def _resolve_uid(objects: list, val):
             for k, v in val.items():
                 if k.startswith('$'):
                     continue
-                result[k] = _resolve_uid(objects, v)
+                result[k] = _resolve_uid(objects, v, _seen)
             return result
     elif isinstance(val, list):
-        return [_resolve_uid(objects, item) for item in val]
+        return [_resolve_uid(objects, item, _seen) for item in val]
     else:
         return val
 
 
-def _decode_keyed_archiver(data: bytes) -> dict:
+def decode_keyed_archiver(data: bytes) -> dict:
     """Decode an NSKeyedArchiver binary plist to a Python dict."""
     plist = plistlib.loads(data)
     if plist.get('$archiver') != 'NSKeyedArchiver':
@@ -101,7 +106,7 @@ def read_aum_midimap(path: str | Path) -> dict:
     with open(path, 'rb') as f:
         data = f.read()
 
-    decoded = _decode_keyed_archiver(data)
+    decoded = decode_keyed_archiver(data)
 
     collection_name = decoded.get('_collection_map_name', '')
     mappings = []
@@ -134,12 +139,13 @@ def read_aum_midimap(path: str | Path) -> dict:
 # NSKeyedArchiver encoding helpers
 # ---------------------------------------------------------------------------
 
-class _ArchiverBuilder:
+class ArchiverBuilder:
     """Builds an NSKeyedArchiver plist from Python objects."""
 
     def __init__(self):
         self._objects = ['$null']  # index 0 is always $null
         self._class_cache = {}
+        self._scalar_cache: dict[tuple, plistlib.UID] = {}
 
     def _add_object(self, obj) -> plistlib.UID:
         idx = len(self._objects)
@@ -159,16 +165,23 @@ class _ArchiverBuilder:
         self._class_cache[classname] = uid
         return uid
 
+    def _add_scalar(self, val) -> plistlib.UID:
+        """Add a scalar value with deduplication."""
+        # bool must use type name in key because bool is a subclass of int
+        # and plistlib encodes them differently in binary plists
+        cache_key = (type(val).__name__, val)
+        if cache_key in self._scalar_cache:
+            return self._scalar_cache[cache_key]
+        uid = self._add_object(val)
+        self._scalar_cache[cache_key] = uid
+        return uid
+
     def encode_value(self, val, *, mutable_dict: bool = False) -> plistlib.UID:
         """Encode a Python value as an NSKeyedArchiver object."""
         if val is None:
             return plistlib.UID(0)  # $null
-        elif isinstance(val, bool):
-            return self._add_object(val)
-        elif isinstance(val, (int, float)):
-            return self._add_object(val)
-        elif isinstance(val, str):
-            return self._add_object(val)
+        elif isinstance(val, (bool, int, float, str)):
+            return self._add_scalar(val)
         elif isinstance(val, dict):
             return self._encode_dict(val, mutable=mutable_dict)
         elif isinstance(val, list):
@@ -264,7 +277,7 @@ def generate_midimap_bytes(collection_name: str,
             },
         }
 
-    builder = _ArchiverBuilder()
+    builder = ArchiverBuilder()
     return builder.build(root)
 
 

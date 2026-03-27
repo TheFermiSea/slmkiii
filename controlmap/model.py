@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from controlmap.plugins import PluginParam
 
 
 class ControlType(Enum):
@@ -20,6 +23,12 @@ class ParamType(Enum):
     DISCRETE = auto()      # Integer steps (waveform selector, mode)
     TOGGLE = auto()        # On/off boolean (mute, solo, bypass)
     TRIGGER = auto()       # Momentary fire-and-forget (note trigger)
+
+
+class MsgType(str, Enum):
+    """MIDI message type for a binding."""
+    CC = "cc"
+    NOTE = "note"
 
 
 @dataclass(frozen=True)
@@ -48,7 +57,7 @@ class Binding:
     midi_channel: int       # 1-16 (user-facing)
     midi_cc: int = 0        # 0-127
     midi_note: int = 0
-    msg_type: str = "cc"    # "cc" or "note"
+    msg_type: MsgType = MsgType.CC
     min_value: float = 0.0
     max_value: float = 1.0
 
@@ -106,7 +115,7 @@ class MappingStrategy(Protocol):
 
     def assign(
         self,
-        params: list,  # list[PluginParam]
+        params: list[PluginParam],
         slots: list[ControlSlot],
-    ) -> list[tuple]:  # list[(PluginParam, ControlSlot)]
+    ) -> list[tuple[PluginParam, ControlSlot]]:
         ...

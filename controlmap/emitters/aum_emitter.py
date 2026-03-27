@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aum_tools import MSG_TYPE_CC, MSG_TYPE_NOTE, _ArchiverBuilder
-from controlmap.model import ResolvedMapping
+from aum_tools import MSG_TYPE_CC, MSG_TYPE_NOTE, ArchiverBuilder
+from controlmap.model import MsgType, ResolvedMapping
 
 
 class AumEmitter:
@@ -44,7 +44,7 @@ class AumEmitter:
         # Build the nested parameter dict matching AUM's structure
         param_tree: dict = {}
         for binding in resolved.page_set.all_bindings:
-            if binding.msg_type == 'note':
+            if binding.msg_type == MsgType.NOTE:
                 msg_type = MSG_TYPE_NOTE
                 data1 = binding.midi_note
             else:
@@ -93,12 +93,12 @@ class AumEmitter:
         }
 
         # Encode as NSKeyedArchiver plist
-        builder = _ArchiverBuilder()
+        builder = ArchiverBuilder()
         data = builder.build(root)
 
-        filename = 'Bat Mix.aum_midimap'
+        safe_name = resolved.spec.name.replace('/', '_')
+        filename = f'{safe_name}.aum_midimap'
         path = output_dir / filename
-        path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'wb') as f:
             f.write(data)
 

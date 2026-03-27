@@ -19,7 +19,7 @@ from controlmap.emitters.aum_emitter import AumEmitter
 from controlmap import compile_mapping
 
 import slmkiii
-from aum_tools import _decode_keyed_archiver
+from aum_tools import decode_keyed_archiver
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _BATTALION_MIDIMAP = _PROJECT_ROOT / 'aum_samples' / 'MIDI Mappings' / 'Channel' / 'Battalion.aum_midimap'
@@ -448,7 +448,7 @@ class TestAumEmitter(unittest.TestCase):
             files = emitter.emit(resolved, tmpdir)
             with open(files[0], 'rb') as f:
                 data = f.read()
-            decoded = _decode_keyed_archiver(data)
+            decoded = decode_keyed_archiver(data)
             self.assertIsInstance(decoded, dict)
 
     def test_emitted_midimap_has_channel_root(self):
@@ -459,7 +459,7 @@ class TestAumEmitter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             files = emitter.emit(resolved, tmpdir)
             with open(files[0], 'rb') as f:
-                decoded = _decode_keyed_archiver(f.read())
+                decoded = decode_keyed_archiver(f.read())
             self.assertEqual(decoded.get('_collection_map_name'), 'Channel')
 
     def test_emitted_midimap_has_slot_with_au_identifier(self):
@@ -472,7 +472,7 @@ class TestAumEmitter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             files = emitter.emit(resolved, tmpdir)
             with open(files[0], 'rb') as f:
-                decoded = _decode_keyed_archiver(f.read())
+                decoded = decode_keyed_archiver(f.read())
             slot0 = decoded.get('slot0')
             self.assertIsNotNone(slot0)
             self.assertEqual(slot0.get('_collection_map_name'), au_id)
@@ -485,7 +485,7 @@ class TestAumEmitter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             files = emitter.emit(resolved, tmpdir)
             with open(files[0], 'rb') as f:
-                decoded = _decode_keyed_archiver(f.read())
+                decoded = decode_keyed_archiver(f.read())
 
             slot0 = decoded['slot0']
             # Navigate the nested path
@@ -522,7 +522,7 @@ class TestAumEmitter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             files = emitter.emit(resolved, tmpdir)
             with open(files[0], 'rb') as f:
-                decoded = _decode_keyed_archiver(f.read())
+                decoded = decode_keyed_archiver(f.read())
             slot0 = decoded['slot0']
             entry = slot0.get('trigger')
             self.assertIsNotNone(entry)

@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import slmkiii
-from controlmap.model import ResolvedMapping
+from controlmap.model import MsgType, ResolvedMapping
 
 # Map controlmap group names to slmkiii template section names
 _GROUP_TO_SECTION = {
@@ -43,7 +43,7 @@ class SlMkIIIEmitter:
                     continue
 
                 control = section[binding.slot.index]
-                if binding.msg_type == 'note':
+                if binding.msg_type == MsgType.NOTE:
                     control.configure_note(
                         channel=binding.midi_channel,
                         note=binding.midi_note,

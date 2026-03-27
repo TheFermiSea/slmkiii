@@ -65,10 +65,8 @@ def bridge(
 
 def list_ports() -> dict[str, list[str]]:
     """List all available MIDI ports."""
-    return {
-        'input': mido.get_input_names(),
-        'output': mido.get_output_names(),
-    }
+    from slmkiii.midi import list_midi_ports
+    return list_midi_ports()
 
 
 def main():

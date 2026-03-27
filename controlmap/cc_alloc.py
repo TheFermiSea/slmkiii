@@ -1,7 +1,7 @@
 """CC number allocator — assigns concrete MIDI CC numbers to bindings."""
 from __future__ import annotations
 
-from controlmap.model import PageSet
+from controlmap.model import MsgType, PageSet
 
 # CC ranges to use for allocation
 _CC_MIN = 20    # Avoid 0-19 (bank select, modulation, breath, etc.)
@@ -52,7 +52,7 @@ class CCAllocator:
                     continue
 
                 # Skip note-type bindings (they use midi_note, not midi_cc)
-                if binding.msg_type == 'note':
+                if binding.msg_type == MsgType.NOTE:
                     binding.midi_channel = channel
                     # Assign a note number based on slot index
                     binding.midi_note = 36 + binding.slot.index

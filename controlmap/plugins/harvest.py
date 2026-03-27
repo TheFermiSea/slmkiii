@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from aum_tools import _decode_keyed_archiver
+from aum_tools import decode_keyed_archiver
 
 
 def _infer_param_type(name: str) -> str:
@@ -119,7 +119,7 @@ def harvest_from_aum_midimap(
     with open(input_path, 'rb') as f:
         data = f.read()
 
-    decoded = _decode_keyed_archiver(data)
+    decoded = decode_keyed_archiver(data)
 
     # Find the plugin slot (slot0, slot1, etc.) that contains the params
     all_params = []

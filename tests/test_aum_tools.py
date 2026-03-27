@@ -7,7 +7,7 @@ from aum_tools import (
     AumMidiMapping, AumSession, AumChannel, AumPlugin,
     MSG_TYPE_CC, MSG_TYPE_NOTE,
     read_aum_midimap, write_aum_midimap, generate_midimap_bytes,
-    read_aum_session, _decode_keyed_archiver,
+    read_aum_session, decode_keyed_archiver,
 )
 
 SAMPLES_DIR = Path(__file__).parent.parent / 'aum_samples'
@@ -71,7 +71,7 @@ class TestWriteMidimap(unittest.TestCase):
         self.assertIsInstance(data, bytes)
 
         # Verify it's a valid plist
-        decoded = _decode_keyed_archiver(data)
+        decoded = decode_keyed_archiver(data)
         self.assertEqual(decoded['_collection_map_name'], 'TestPlugin.AU-deadbeef')
 
     def test_round_trip_file(self):
@@ -103,7 +103,7 @@ class TestWriteMidimap(unittest.TestCase):
 
     def test_empty_mappings(self):
         data = generate_midimap_bytes('Empty', [])
-        decoded = _decode_keyed_archiver(data)
+        decoded = decode_keyed_archiver(data)
         self.assertEqual(decoded['_collection_map_name'], 'Empty')
 
 

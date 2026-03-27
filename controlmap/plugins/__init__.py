@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 
 from controlmap.model import ParamType
@@ -35,13 +36,15 @@ class PluginParamDB:
         if not patterns:
             return list(self.params.values())
 
+        compiled = [re.compile(fnmatch.translate(p)) for p in patterns]
         selected = []
         seen = set()
-        for pattern in patterns:
-            for path, param in self.params.items():
-                if path not in seen and fnmatch.fnmatch(path, pattern):
+        for path, param in self.params.items():
+            for regex in compiled:
+                if path not in seen and regex.match(path):
                     selected.append(param)
                     seen.add(path)
+                    break
         return selected
 
     def by_group(self, group: str) -> list[PluginParam]:
