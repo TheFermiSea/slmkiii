@@ -11,7 +11,7 @@ This is a fork of `inno/slmkiii`, ported to Python 3.12+.
 ## Commands
 
 ```bash
-python -m unittest tests                              # Run all tests (27 tests)
+python -m unittest tests                              # Run all tests (27 template + 52 incontrol)
 python -m unittest tests.TestTemplate.test_create_new  # Run a single test
 coverage run -m unittest tests && coverage report -m   # Coverage report
 uv run slmkiii --help                                  # CLI tool
@@ -81,6 +81,36 @@ len(t)                                           # 77
 for control in t: ...                            # Iterate all controls
 t['buttons']                                     # Section access by name
 t.metadata = {'author': 'Me'}                    # Persists in JSON exports
+```
+
+## InControl API (`slmkiii/incontrol.py`)
+
+Real-time control of LEDs, screens, and input via the documented InControl API (Novation Programmer's Reference Guide). Uses the **InControl USB port** (separate from the template MIDI port). SysEx header: `F0 00 20 29 02 0A 01` (vs `0x03` for templates).
+
+**Key classes:**
+- `InControlConnection` — context manager for bidirectional InControl MIDI I/O
+- `LED` — enum of all addressable LED indices (pads, faders, buttons, transport, keys)
+- `Control` — enum of all input control CC/Note indices
+
+**Capabilities:**
+- LEDs: `set_led(index, color)`, `flash_led()`, `pulse_led()`, `set_led_rgb(index, r, g, b)`
+- Screens: `set_layout(LAYOUT_KNOB)`, `set_text(col, field, text)`, `set_color()`, `set_value()`, `set_color_rgb()`
+- Notifications: `notify(line1, line2)` — temporary center screen popup
+- Input: `poll_input()` returns decoded events (button/knob/fader/pad with type-specific fields)
+- Device inquiry: `device_inquiry()` returns firmware version
+- Helpers: `label_knob(n, name, value)`, `label_fader(n, name)`
+
+```python
+from slmkiii.incontrol import InControlConnection, LED, LAYOUT_KNOB
+
+with InControlConnection() as ic:
+    ic.set_layout(LAYOUT_KNOB)
+    ic.set_led(LED.PAD_1, 72)                # Red pad
+    ic.set_led_rgb(LED.FADER_1, 0, 127, 0)   # Green fader LED
+    ic.set_text(0, 0, 'Filter')              # Label knob 1
+    ic.set_value(0, 0, 64)                   # Knob icon at 50%
+    ic.notify('Hello!', 'World')             # Center screen popup
+    events = ic.poll_input()                  # Read button/knob/fader/pad events
 ```
 
 ## MIDI I/O (`slmkiii/midi.py`)
