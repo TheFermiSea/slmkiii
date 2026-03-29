@@ -2,7 +2,7 @@
   "plugin_id": "ua_battalion",
   "plugin_name": "UA Battalion",
   "au_identifier": "UA Battalion.AU-556E41757561424C61756D75",
-  "param_count": 3230,
+  "param_count": 3225,
   "groups": {
     "drum1": {
       "display_name": "drum1",
@@ -23481,51 +23481,6 @@
           "display_name": "Performva",
           "param_type": "discrete",
           "group": "perform",
-          "priority": 50,
-          "tags": []
-        }
-      ]
-    },
-    "root": {
-      "display_name": "root",
-      "params": [
-        {
-          "path": "Mute",
-          "display_name": "Mute",
-          "param_type": "toggle",
-          "group": "root",
-          "priority": 50,
-          "tags": []
-        },
-        {
-          "path": "Rec enable",
-          "display_name": "Rec enabl",
-          "param_type": "continuous",
-          "group": "root",
-          "priority": 50,
-          "tags": []
-        },
-        {
-          "path": "ScrollToChannel",
-          "display_name": "ScrollToC",
-          "param_type": "continuous",
-          "group": "root",
-          "priority": 50,
-          "tags": []
-        },
-        {
-          "path": "Solo",
-          "display_name": "Solo",
-          "param_type": "toggle",
-          "group": "root",
-          "priority": 50,
-          "tags": []
-        },
-        {
-          "path": "Volume",
-          "display_name": "Volume",
-          "param_type": "continuous",
-          "group": "root",
           "priority": 50,
           "tags": []
         }

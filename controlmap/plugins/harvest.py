@@ -107,10 +107,14 @@ def harvest_from_aum_midimap(
     input_path: str | Path,
     plugin_id: str,
     plugin_name: str = '',
+    slot_name: str = '',
 ) -> dict:
     """Extract all parameters from an AUM MIDI mapping file.
 
     Handles nested sub-collections (like Battalion's drumProtoParams).
+    For Channel-level mappings with multiple slots, use slot_name to
+    select a specific plugin (e.g., "Animoog Z.AU-..."). If empty,
+    harvests from the slot with the most parameters.
 
     Returns:
         Dict suitable for writing as a plugin parameter JSON file.
@@ -121,31 +125,51 @@ def harvest_from_aum_midimap(
 
     decoded = decode_keyed_archiver(data)
 
-    # Find the plugin slot (slot0, slot1, etc.) that contains the params
-    all_params = []
-    au_identifier = ''
+    # Collect params per slot to handle multi-slot Channel mappings
+    slots: dict[str, dict] = {}  # slot_key -> {au_id, params}
+    top_level_params = []
 
     for key, value in decoded.items():
         if key.startswith('slot') and isinstance(value, dict):
             collection_name = value.get('_collection_map_name', '')
-            if collection_name and '.AU-' in collection_name:
-                au_identifier = collection_name
-
-            # Walk all nested params in this slot
             slot_params = _walk_params(value)
-            all_params.extend(slot_params)
+            slots[key] = {
+                'au_identifier': collection_name if '.AU-' in collection_name else '',
+                'params': slot_params,
+                'collection_name': collection_name,
+            }
         elif key.startswith('_'):
             continue
         elif isinstance(value, dict):
-            # Top-level params (like Transport controls)
             if 'specState' in value:
-                all_params.append({
+                top_level_params.append({
                     'path': key,
                     'display_name': _make_display_name(key),
                     'param_type': _infer_param_type(key),
                 })
             else:
-                all_params.extend(_walk_params(value))
+                top_level_params.extend(_walk_params(value))
+
+    # Select the target slot
+    all_params = []
+    au_identifier = ''
+
+    if slot_name:
+        # Find slot matching the requested name
+        for slot_data in slots.values():
+            if slot_name in slot_data['collection_name']:
+                all_params = slot_data['params']
+                au_identifier = slot_data['au_identifier']
+                break
+    elif slots:
+        # Auto-select: use the slot with the most params (skip empty slots)
+        best = max(slots.values(), key=lambda s: len(s['params']))
+        all_params = best['params']
+        au_identifier = best['au_identifier']
+
+    # Include top-level params only if no slot was selected
+    if not all_params:
+        all_params = top_level_params
 
     if not plugin_name:
         plugin_name = plugin_id.replace('_', ' ').title()
@@ -182,13 +206,15 @@ def harvest_to_file(
     output_path: str | Path,
     plugin_id: str,
     plugin_name: str = '',
+    slot_name: str = '',
 ) -> int:
     """Harvest params from AUM mapping and write to JSON file.
 
     Returns:
         Number of parameters extracted.
     """
-    result = harvest_from_aum_midimap(input_path, plugin_id, plugin_name)
+    result = harvest_from_aum_midimap(
+        input_path, plugin_id, plugin_name, slot_name=slot_name)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

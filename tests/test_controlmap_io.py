@@ -192,7 +192,7 @@ class TestHarvestBattalion(unittest.TestCase):
         )
 
     def test_param_count(self):
-        self.assertEqual(self.result['param_count'], 3230)
+        self.assertEqual(self.result['param_count'], 3225)
 
     def test_plugin_id(self):
         self.assertEqual(self.result['plugin_id'], 'ua_battalion')

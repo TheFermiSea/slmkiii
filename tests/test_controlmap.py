@@ -402,7 +402,7 @@ class TestPluginRegistry(unittest.TestCase):
 
     def test_ua_battalion_param_count(self):
         db = load_plugin('ua_battalion')
-        self.assertEqual(len(db.params), 3230)
+        self.assertEqual(len(db.params), 3225)
 
     def test_caching(self):
         d1 = load_plugin('ua_battalion')

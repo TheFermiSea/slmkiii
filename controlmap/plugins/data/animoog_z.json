@@ -1,0 +1,181 @@
+{
+  "plugin_id": "animoog_z",
+  "plugin_name": "Animoog Z",
+  "au_identifier": "Animoog Z.AU-4D6F6F67616E696D61756D75",
+  "param_count": 21,
+  "groups": {
+    "root": {
+      "display_name": "root",
+      "params": [
+        {
+          "path": "base_freq_k",
+          "display_name": "Base_freq",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "env_reset_t",
+          "display_name": "Env_reset",
+          "param_type": "toggle",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "orb_rate_k",
+          "display_name": "Orb_rate_",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "orb_sync_t",
+          "display_name": "Orb_sync_",
+          "param_type": "toggle",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "orb_x_k",
+          "display_name": "Orb_x_k",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "orb_y_k",
+          "display_name": "Orb_y_k",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "orb_z_k",
+          "display_name": "Orb_z_k",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "origin_x_k",
+          "display_name": "Origin_x_",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "origin_y_k",
+          "display_name": "Origin_y_",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "origin_z_k",
+          "display_name": "Origin_z_",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "path_dir_k",
+          "display_name": "Path_dir_",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "path_rate_k",
+          "display_name": "Path_rate",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "path_sync_t",
+          "display_name": "Path_sync",
+          "param_type": "toggle",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "syn_glide_k",
+          "display_name": "Syn_glide",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "syn_hold_t",
+          "display_name": "Syn_hold_",
+          "param_type": "toggle",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "syn_legato_t",
+          "display_name": "Syn_legat",
+          "param_type": "toggle",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "syn_mono_t",
+          "display_name": "Syn_mono_",
+          "param_type": "toggle",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "syn_voice_limit_k",
+          "display_name": "Syn_voice",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "syn_volume_k",
+          "display_name": "Syn_volum",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "vco_reset_t",
+          "display_name": "Vco_reset",
+          "param_type": "toggle",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        },
+        {
+          "path": "z_mult_k",
+          "display_name": "Z_mult_k",
+          "param_type": "continuous",
+          "group": "root",
+          "priority": 50,
+          "tags": []
+        }
+      ]
+    }
+  }
+}
