@@ -12,50 +12,61 @@ Buttons 9-16: CC 60-67  Scene select  (sl2qk.moz maps to CC 100 + scene#)
 
 import os
 import sys
+from typing import cast
 
 # Allow running from any directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from slmkiii import Template
+from slmkiii.template.input.button import Button
+from slmkiii.template.input.fader import Fader
+from slmkiii.template.input.knob import Knob
+from slmkiii.template.input.pad_hit import PadHit
 
 CH = 16  # All controls on MIDI channel 16
 
 t = Template()
 t.name = "QK KNTRL"
 
+# Template sections are set dynamically via setattr; cast to typed lists.
+knobs = cast(list[Knob], getattr(t, 'knobs'))
+faders = cast(list[Fader], getattr(t, 'faders'))
+buttons = cast(list[Button], getattr(t, 'buttons'))
+pad_hits = cast(list[PadHit], getattr(t, 'pad_hits'))
+
 # Knobs 1-4: KNTRL knobs (CC 36-39)
-t.knobs[0].configure_cc(CH, 36, name="KNTRL K1")
-t.knobs[1].configure_cc(CH, 37, name="KNTRL K2")
-t.knobs[2].configure_cc(CH, 38, name="KNTRL K3")
-t.knobs[3].configure_cc(CH, 39, name="KNTRL K4")
+knobs[0].configure_cc(CH, 36, name="KNTRL K1")
+knobs[1].configure_cc(CH, 37, name="KNTRL K2")
+knobs[2].configure_cc(CH, 38, name="KNTRL K3")
+knobs[3].configure_cc(CH, 39, name="KNTRL K4")
 
 # Knobs 5-8: MGEN knobs (CC 40-43)
-t.knobs[4].configure_cc(CH, 40, name="MGEN K1")
-t.knobs[5].configure_cc(CH, 41, name="MGEN K2")
-t.knobs[6].configure_cc(CH, 42, name="MGEN K3")
-t.knobs[7].configure_cc(CH, 43, name="MGEN K4")
+knobs[4].configure_cc(CH, 40, name="MGEN K1")
+knobs[5].configure_cc(CH, 41, name="MGEN K2")
+knobs[6].configure_cc(CH, 42, name="MGEN K3")
+knobs[7].configure_cc(CH, 43, name="MGEN K4")
 
 # Faders 1-8: Mixer controls
-t.faders[0].configure_cc(CH,  7, name="Mix Vol")
-t.faders[1].configure_cc(CH,  8, name="Mix Pan")
-t.faders[2].configure_cc(CH,  6, name="Mix Gain")
-t.faders[3].configure_cc(CH,  9, name="Mix M/S")
-t.faders[4].configure_cc(CH, 10, name="Mix SndA")
-t.faders[5].configure_cc(CH, 11, name="Mix SndB")
-t.faders[6].configure_cc(CH, 16, name="Mix HPF")
-t.faders[7].configure_cc(CH, 17, name="Mix LPF")
+faders[0].configure_cc(CH,  7, name="Mix Vol")
+faders[1].configure_cc(CH,  8, name="Mix Pan")
+faders[2].configure_cc(CH,  6, name="Mix Gain")
+faders[3].configure_cc(CH,  9, name="Mix M/S")
+faders[4].configure_cc(CH, 10, name="Mix SndA")
+faders[5].configure_cc(CH, 11, name="Mix SndB")
+faders[6].configure_cc(CH, 16, name="Mix HPF")
+faders[7].configure_cc(CH, 17, name="Mix LPF")
 
 # Pads 1-16: KNTRL pads (Note 0-15)
 for i in range(16):
-    t.pad_hits[i].configure_note(CH, i, name=f"Pad {i + 1}")
+    pad_hits[i].configure_note(CH, i, name=f"Pad {i + 1}")
 
 # Buttons 1-8: Channel select (CC 50-57)
 for i in range(8):
-    t.buttons[i].configure_cc(CH, 50 + i, name=f"Ch Sel {i + 1}")
+    buttons[i].configure_cc(CH, 50 + i, name=f"Ch Sel {i + 1}")
 
 # Buttons 9-16: Scene select (CC 60-67)
 for i in range(8):
-    t.buttons[8 + i].configure_cc(CH, 60 + i, name=f"Scene {i + 1}")
+    buttons[8 + i].configure_cc(CH, 60 + i, name=f"Scene {i + 1}")
 
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qk_kntrl.json")
 t.save(out)
