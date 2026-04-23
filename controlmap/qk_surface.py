@@ -122,7 +122,7 @@ class QKSurface:
         """Block until Ctrl-C, updating SL MkIII screens from QK feedback."""
         running = True
 
-        def stop(_sig, _frame) -> None:
+        def stop(_sig, _frame):
             nonlocal running
             running = False
 
