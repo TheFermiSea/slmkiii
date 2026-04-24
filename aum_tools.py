@@ -109,24 +109,32 @@ def read_aum_midimap(path: str | Path) -> dict:
     decoded = decode_keyed_archiver(data)
 
     collection_name = decoded.get('_collection_map_name', '')
-    mappings = []
+    mappings: list[AumMidiMapping] = []
 
-    for key, value in decoded.items():
-        if key.startswith('_') or not isinstance(value, dict):
-            continue
-        spec = value.get('specState')
-        if spec is None:
-            continue
-        mappings.append(AumMidiMapping(
-            parameter_name=key,
-            cc_number=spec.get('data1', 0),
-            channel=value.get('channel', 0),
-            min_value=value.get('min', 0.0),
-            max_value=value.get('max', 1.0),
-            enabled=spec.get('enabled', False),
-            auto_toggle=value.get('autoToggle', False),
-            msg_type=spec.get('type', MSG_TYPE_CC),
-        ))
+    def visit(node: dict) -> None:
+        # An entry that has 'specState' IS a binding, not a container.
+        # AUM's nested channel-level files have container dicts (slot0, slot1,
+        # 'drumProtoParams', etc.) AND leaf dicts with specState. We need to
+        # walk all containers and collect every leaf.
+        for key, value in node.items():
+            if key.startswith('_') or not isinstance(value, dict):
+                continue
+            if 'specState' in value:
+                spec = value['specState']
+                mappings.append(AumMidiMapping(
+                    parameter_name=key,
+                    cc_number=spec.get('data1', 0),
+                    channel=value.get('channel', 0),
+                    min_value=value.get('min', 0.0),
+                    max_value=value.get('max', 1.0),
+                    enabled=spec.get('enabled', False),
+                    auto_toggle=value.get('autoToggle', False),
+                    msg_type=spec.get('type', MSG_TYPE_CC),
+                ))
+            else:
+                visit(value)
+
+    visit(decoded)
 
     return {
         'collection_name': collection_name,

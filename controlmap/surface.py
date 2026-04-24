@@ -295,38 +295,52 @@ class ControlSurface:
         self._feedback_index = index
 
     def _push_watch_table(self):
-        """Send WATCH_CLEAR + WATCH_SET to the Mozaic bridge for every CC
-        binding across all pages. Mozaic will then echo only those CCs back."""
+        """Send CLEAR_WATCHES + WATCH_CC + WATCH_NOTES to the Mozaic bridge,
+        then GET_VALUES to replay any cached state. Idempotent — safe to call
+        on every reconnect."""
         if self._midi_out is None or self._feedback_index is None:
             return
-        self._midi_out.send(bridge_protocol.watch_clear())
+        self._midi_out.send(bridge_protocol.clear_watches())
         pairs = list(self._feedback_index.keys())
-        for msg in bridge_protocol.watch_set(pairs):
+        for msg in bridge_protocol.watch_cc(pairs):
             self._midi_out.send(msg)
             time.sleep(0.01)
-        print(f'Bridge: watching {len(pairs)} CC bindings')
+        # Watch notes on every channel that has a Note binding
+        note_chs = sorted({b.midi_channel - 1 for page in self._pages
+                           for b in page.bindings
+                           if b.msg_type is MsgType.NOTE})
+        if note_chs:
+            self._midi_out.send(bridge_protocol.watch_notes(note_chs))
+        # Ask the bridge to replay any cached state so screens populate
+        # immediately instead of waiting for the user to wiggle a knob.
+        self._midi_out.send(bridge_protocol.get_values())
+        print(f'Bridge: watching {len(pairs)} CC + {len(note_chs)} note channels')
 
     def _handle_feedback(self, ic: InControlConnection):
-        """Drain any incoming sysex echoes and update screens/values."""
+        """Drain incoming bridge events and update screens/state."""
         if self._feedback_in is None or self._feedback_index is None:
             return
         for msg in self._feedback_in.iter_pending():
-            parsed = bridge_protocol.parse(msg)
-            if parsed is None:
+            event = bridge_protocol.parse_event(msg)
+            if event is None:
                 continue
-            cmd, payload = parsed
-            if cmd == bridge_protocol.SX_VALUE and len(payload) >= 3:
-                ch, cc, val = payload[0], payload[1], payload[2]
-                slot = self._feedback_index.get((ch, cc))
+            if isinstance(event, bridge_protocol.CCValue):
+                slot = self._feedback_index.get((event.channel, event.cc))
                 if slot is None:
                     continue
-                self._values[slot] = val
-                # Only update screens if the slot is a knob on the current page.
+                self._values[slot] = event.value
                 bindings = self._bindings_by_slot()
                 if slot in bindings and slot[0] == 'knobs' and slot[1] < 8:
-                    self._update_knob_screen(ic, slot[1], val)
-            elif cmd == bridge_protocol.SX_HELLO:
-                print('Bridge: HELLO from iPad')
+                    self._update_knob_screen(ic, slot[1], event.value)
+            elif isinstance(event, bridge_protocol.NoteEvent):
+                # Light the corresponding pad LED if the note maps to one.
+                # SL MkIII pads send notes 36-51 (standard GM drum-pad range).
+                pad_idx = event.note - 36
+                if 0 <= pad_idx < 16:
+                    ic.set_led(_PAD_LEDS[pad_idx],
+                               COLOR_GREEN if event.on else COLOR_PURPLE)
+            elif isinstance(event, bridge_protocol.HelloAck):
+                print(f'Bridge: HELLO_ACK v{event.major}.{event.minor}')
 
     def run(self):
         """Run the control surface daemon. Blocks until Ctrl-C."""
@@ -355,6 +369,9 @@ class ControlSurface:
         with InControlConnection() as ic:
             self._ic = ic
             print(f'Connected. Screen Up/Down to switch pages. Ctrl-C to stop.')
+
+            plugin_name = str(self._resolved.metadata.get('plugin', 'Surface'))
+            ic.notify(plugin_name[:18], 'Connected')
 
             if self._feedback_in is not None:
                 self._push_watch_table()

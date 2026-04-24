@@ -74,6 +74,184 @@ def cmd_ports(args):
         print(f"  {port}")
 
 
+# ── surface subcommands ──────────────────────────────────────────────────────
+
+
+def cmd_surface_compile(args):
+    """Compile a YAML/JSON spec into .syx + .aum_midimap + .mozaic artifacts."""
+    from pathlib import Path
+    from controlmap import compile_mapping
+    from controlmap.spec_loader import load_spec
+    from controlmap.emitters.slmkiii_emitter import SlMkIIIEmitter
+    from controlmap.emitters.aum_emitter import AumEmitter
+    from controlmap.mozaic import pack_moz_file
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    spec = load_spec(args.spec)
+    print(f"spec: {spec.name} | controller={spec.controller_id} plugin={spec.plugin_id}")
+
+    resolved = compile_mapping(spec)
+    print(f"compiled: {resolved.metadata['param_count']} params, "
+          f"{resolved.metadata['page_count']} pages")
+
+    syx_paths = SlMkIIIEmitter().emit(resolved, out_dir)
+    for p in syx_paths:
+        print(f"  → {p}")
+
+    map_paths = AumEmitter().emit(resolved, out_dir)
+    for p in map_paths:
+        print(f"  → {p}")
+
+    bridge_src = Path(__file__).parent.parent / 'controlmap' / 'mozaic' / 'slmk_bridge.moz'
+    bridge_out = out_dir / 'SLMK-BRIDGE.mozaic'
+    pack_moz_file(bridge_src, bridge_out, 'SLMK-BRIDGE')
+    print(f"  → {bridge_out}")
+
+
+def cmd_surface_push(args):
+    """Compile (if needed) and push artifacts to SL MkIII + iPad/AUM."""
+    from pathlib import Path
+    from controlmap.spec_loader import load_spec
+
+    spec = load_spec(args.spec)
+    out_dir = Path(args.out_dir)
+
+    syx_paths = sorted(out_dir.glob(f'{spec.name}*.syx'))
+    map_paths = sorted(out_dir.glob(f'{spec.name}*.aum_midimap'))
+    mozaic_path = out_dir / 'SLMK-BRIDGE.mozaic'
+
+    needs_compile = (not syx_paths or not map_paths or not mozaic_path.exists()
+                     or args.force_compile)
+    if needs_compile:
+        compile_args = argparse.Namespace(spec=args.spec, out_dir=str(out_dir))
+        cmd_surface_compile(compile_args)
+        syx_paths = sorted(out_dir.glob(f'{spec.name}*.syx'))
+        map_paths = sorted(out_dir.glob(f'{spec.name}*.aum_midimap'))
+
+    if not args.skip_slmkiii:
+        from slmkiii import Template, midi
+        from slmkiii.errors import ErrorMidiDeviceNotFound
+        try:
+            for i, syx in enumerate(syx_paths):
+                t = Template(str(syx))
+                midi.push_template(t, slot=args.slot - 1 + i)
+                print(f"pushed {syx.name} → SL MkIII slot {args.slot + i}")
+        except ErrorMidiDeviceNotFound:
+            print("warning: SL MkIII not connected; skipped template push",
+                  file=sys.stderr)
+
+    if not args.skip_ipad:
+        from controlmap.ipad_push import push_files
+        # Channel-level mappings live in /Documents/MIDI Mappings/Channel/
+        pairs = [(p, f'/Documents/MIDI Mappings/Channel/{p.name}')
+                 for p in map_paths]
+        pairs.append((mozaic_path, f'/Documents/{mozaic_path.name}'))
+        try:
+            written = push_files(pairs, bundle_id=args.aum_bundle)
+            for w in written:
+                print(f"pushed → {args.aum_bundle} {w}")
+        except Exception as e:
+            print(f"warning: iPad push failed: {e}", file=sys.stderr)
+
+
+def cmd_surface_run(args):
+    """Start the live surface daemon for a compiled spec."""
+    from controlmap import compile_mapping
+    from controlmap.spec_loader import load_spec
+    from controlmap.surface import ControlSurface
+
+    spec = load_spec(args.spec)
+    resolved = compile_mapping(spec)
+
+    surface = ControlSurface(
+        resolved,
+        midi_output=args.ipad_port,
+        feedback_port=args.feedback_port or args.ipad_port,
+    )
+    surface.run()
+
+
+def cmd_surface_inspect(args):
+    """Print a summary of what the spec compiles into. No I/O."""
+    from controlmap import compile_mapping
+    from controlmap.spec_loader import load_spec
+
+    spec = load_spec(args.spec)
+    resolved = compile_mapping(spec)
+
+    print(f"spec:        {spec.name}")
+    print(f"controller:  {spec.controller_id}")
+    print(f"plugin:      {spec.plugin_id}")
+    print(f"target:      {spec.target_id}")
+    print(f"channel:     {spec.midi_channel_base}")
+    print(f"params:      {resolved.metadata['param_count']}")
+    print(f"pages:       {resolved.metadata['page_count']}")
+    print()
+    for page in resolved.page_set.pages:
+        print(f"  Page {page.index + 1}: {page.name} ({len(page.bindings)} bindings)")
+        for b in page.bindings[:8]:
+            kind = 'CC' if b.msg_type.name == 'CC' else 'Note'
+            data1 = b.midi_cc if b.msg_type.name == 'CC' else b.midi_note
+            print(f"    {b.slot.group}[{b.slot.index}] -> "
+                  f"{kind}{data1} ch{b.midi_channel}  {b.param.display_name or b.param.param_path}")
+        if len(page.bindings) > 8:
+            print(f"    ... +{len(page.bindings) - 8} more")
+
+
+def _add_surface_subparsers(subparsers):
+    p_surface = subparsers.add_parser(
+        "surface",
+        help="Compile, push, or run a controlmap spec end-to-end",
+    )
+    surface_subs = p_surface.add_subparsers(dest="surface_cmd")
+    surface_subs.required = True
+
+    p_compile = surface_subs.add_parser(
+        "compile", help="Compile a spec into .syx, .aum_midimap, and .mozaic artifacts")
+    p_compile.add_argument("spec", help="Path to YAML/JSON mapping spec")
+    p_compile.add_argument(
+        "--out-dir", default="build", help="Output directory (default: build/)")
+    p_compile.set_defaults(func=cmd_surface_compile)
+
+    p_push = surface_subs.add_parser(
+        "push", help="Push compiled artifacts to SL MkIII and iPad/AUM")
+    p_push.add_argument("spec", help="Path to YAML/JSON mapping spec")
+    p_push.add_argument(
+        "--out-dir", default="build", help="Build directory (default: build/)")
+    p_push.add_argument(
+        "--slot", type=int, choices=range(1, 9), default=1,
+        help="SL MkIII template slot (1-8)")
+    p_push.add_argument(
+        "--aum-bundle", default="com.kymatica.AUM",
+        help="iPad app bundle id to receive .mozaic + .aum_midimap (default: com.kymatica.AUM)")
+    p_push.add_argument(
+        "--skip-slmkiii", action="store_true", help="Don't push to SL MkIII")
+    p_push.add_argument(
+        "--skip-ipad", action="store_true", help="Don't push to iPad")
+    p_push.add_argument(
+        "--force-compile", action="store_true",
+        help="Re-compile artifacts even if they exist")
+    p_push.set_defaults(func=cmd_surface_push)
+
+    p_run = surface_subs.add_parser(
+        "run", help="Run the live surface daemon")
+    p_run.add_argument("spec", help="Path to YAML/JSON mapping spec")
+    p_run.add_argument(
+        "--ipad-port", default="iPad",
+        help="MIDI port name for iDAM I/O (default: iPad)")
+    p_run.add_argument(
+        "--feedback-port", default=None,
+        help="Separate MIDI input port for bridge echoes (default: same as --ipad-port)")
+    p_run.set_defaults(func=cmd_surface_run)
+
+    p_inspect = surface_subs.add_parser(
+        "inspect", help="Show what a spec compiles to (no I/O)")
+    p_inspect.add_argument("spec", help="Path to YAML/JSON mapping spec")
+    p_inspect.set_defaults(func=cmd_surface_inspect)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="slmkiii",
@@ -123,6 +301,9 @@ def main():
     # ports
     p_ports = subparsers.add_parser("ports", help="List available MIDI ports")
     p_ports.set_defaults(func=cmd_ports)
+
+    # surface (nested subcommands for the controlmap workflow)
+    _add_surface_subparsers(subparsers)
 
     args = parser.parse_args()
 

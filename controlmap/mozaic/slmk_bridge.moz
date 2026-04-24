@@ -1,116 +1,242 @@
-// SLMK-BRIDGE - Dynamic bidirectional bridge for SL MkIII <-> AUM plugins
+// SLMK-BRIDGE v1.1 — Stateful bidirectional bridge for SL MkIII <-> AUM
 //
 // Runs as a Mozaic AUv3 on the iDAM MIDI path. Mac controls it via sysex.
+// Sits between iDAM input and the AUM MIDI mapping/plugin chain.
 //
-// Protocol (F0 7D = non-commercial / private manufacturer ID):
-//   F0 7D 01 F7                          HELLO (Mac <-> iPad)
-//   F0 7D 02 ch cc [ch cc ...] F7        WATCH_SET    Mac -> iPad
-//   F0 7D 03 F7                          WATCH_CLEAR  Mac -> iPad
-//   F0 7D 04 ch cc val F7                VALUE        iPad -> Mac
-//   F0 7D 05 page F7                     PAGE         Mac <-> iPad
+// Wire protocol (F0 7D = non-commercial / private manufacturer ID).
+// Single-byte command opcodes.
 //
-// All bytes in payload are 0-127 (standard MIDI data byte range).
+// Mac -> bridge (requests):
+//   00 HELLO                    handshake
+//   01 GET_VALUES               replay every cached watched CC value
+//   02 WATCH_CC ch cc [...]     add (ch, cc) pairs to CC watch set
+//   03 WATCH_NOTES ch [...]     enable note echoing on listed channels
+//   04 CLEAR_WATCHES            forget all CC and note watches
+//   05 PAGE page                set active page (echo state, no routing yet)
+//
+// bridge -> Mac (responses / events):
+//   10 HELLO_ACK major minor    sent in reply to HELLO and at @OnLoad
+//   11 CC_VALUE ch cc val       echoed CC value (only on actual change)
+//   12 NOTE_ON ch note vel      echoed note-on
+//   13 NOTE_OFF ch note         echoed note-off
+//   15 PAGE_ACK page            confirmation of page change
 
 @OnLoad
     SetShortName {SLMK-BR}
     ShowLayout 0
-    LabelPads {SLMK-BRIDGE - dynamic bidirectional bridge. Watch table set via sysex from Mac.}
-    Log {SLMK-BRIDGE loaded}
+    LabelPads {SLMK-BRIDGE v1.1 - dynamic stateful bridge for SL MkIII feedback}
+    Log {SLMK-BRIDGE v1.1 loaded}
 
-    // watch_mask[ch*128 + cc] = 1 if we should echo that (ch, cc) back to Mac.
-    // Single flat array of 2048 flags (16 channels x 128 CCs).
+    // Watch set: 16 channels × 128 CCs flat array. 1 = watched.
     FillArray watch_mask, 0, 2048
+    // Per-channel note echo flags
+    FillArray note_watch, 0, 16
+    // Value cache: -1 means "no value seen yet" (so first arrival always emits)
+    FillArray cc_values, -1, 2048
 
     active_page = 0
+    proto_major = 1
+    proto_minor = 1
 
-    // Private sysex tag
-    sx_tag1 = 0xF0
-    sx_tag2 = 0x7D
-    sx_hello       = 0x01
-    sx_watch_set   = 0x02
-    sx_watch_clear = 0x03
-    sx_value       = 0x04
-    sx_page        = 0x05
+    // Constants
+    sx_start = 0xF0
+    sx_tag   = 0x7D
+    sx_end   = 0xF7
 
-    // Sysex scratch buffer
-    out_len = 0
+    // Request opcodes
+    cmd_hello       = 0x00
+    cmd_get_values  = 0x01
+    cmd_watch_cc    = 0x02
+    cmd_watch_notes = 0x03
+    cmd_clear       = 0x04
+    cmd_page        = 0x05
+
+    // Response opcodes
+    rsp_hello_ack = 0x10
+    rsp_cc_value  = 0x11
+    rsp_note_on   = 0x12
+    rsp_note_off  = 0x13
+    rsp_page_ack  = 0x15
+
+    // Announce ourselves so a Mac listening on startup learns we're here
+    Call @SendHelloAck
 @End
 
 @OnMidiCC
-    // Pass-through: the CC still reaches AUM's MIDI mapping & any downstream plugins.
-    // Mozaic in an AUv3 chain passes MIDI through by default - we still re-emit
-    // explicitly so the value is authoritative (e.g., if a scene mute zeroed it).
+    // Pass through to AUM's MIDI mapping / next plugin in chain
     SendMIDICC MIDIChannel, MIDIByte2, MIDIByte3
 
-    // Echo watched CCs back to Mac via iDAM output
     idx = MIDIChannel * 128 + MIDIByte2
     if watch_mask[idx] = 1
-        Call @EmitValue
+        // Dedup: only emit when the value actually changed
+        if cc_values[idx] <> MIDIByte3
+            cc_values[idx] = MIDIByte3
+            Call @EmitCCValue
+        endif
     endif
 @End
 
-@EmitValue
-    // F0 7D sx_value ch cc val F7
-    sysex_msg[0] = sx_tag1
-    sysex_msg[1] = sx_tag2
-    sysex_msg[2] = sx_value
-    sysex_msg[3] = MIDIChannel
-    sysex_msg[4] = MIDIByte2
-    sysex_msg[5] = MIDIByte3
-    sysex_msg[6] = 0xF7
-    SendSysex sysex_msg, 7
+@OnMidiNote
+    if MIDICommand = 0x90
+        SendMIDINoteOn MIDIChannel, MIDIByte2, MIDIByte3
+        if note_watch[MIDIChannel] = 1
+            Call @EmitNoteOn
+        endif
+    elseif MIDICommand = 0x80
+        SendMIDINoteOff MIDIChannel, MIDIByte2, MIDIByte3
+        if note_watch[MIDIChannel] = 1
+            Call @EmitNoteOff
+        endif
+    endif
 @End
 
 @OnSysex
     ReceiveSysex rx
-    // minimum 3-byte message (F0 7D TYPE F7)
+    // Smallest valid private message is F0 7D cmd F7 = 4 bytes
     if SysexSize < 4
         Exit
     endif
-    if rx[0] <> sx_tag1
+    if rx[0] <> sx_start
         Exit
     endif
-    if rx[1] <> sx_tag2
+    if rx[1] <> sx_tag
         Exit
     endif
 
     cmd = rx[2]
 
-    if cmd = sx_hello
-        Call @ReplyHello
-    elseif cmd = sx_watch_set
-        Call @HandleWatchSet
-    elseif cmd = sx_watch_clear
-        FillArray watch_mask, 0, 2048
-        Log {watch_mask cleared}
-    elseif cmd = sx_page
-        active_page = rx[3]
-        Log {active_page = }, active_page
+    if cmd = cmd_hello
+        Call @SendHelloAck
+    elseif cmd = cmd_get_values
+        Call @ReplayValues
+    elseif cmd = cmd_watch_cc
+        Call @HandleWatchCC
+    elseif cmd = cmd_watch_notes
+        Call @HandleWatchNotes
+    elseif cmd = cmd_clear
+        Call @HandleClear
+    elseif cmd = cmd_page
+        Call @HandlePage
     endif
 @End
 
-@ReplyHello
-    sysex_msg[0] = sx_tag1
-    sysex_msg[1] = sx_tag2
-    sysex_msg[2] = sx_hello
-    sysex_msg[3] = 0xF7
-    SendSysex sysex_msg, 4
-    Log {HELLO replied}
+@SendHelloAck
+    sysex_msg[0] = sx_start
+    sysex_msg[1] = sx_tag
+    sysex_msg[2] = rsp_hello_ack
+    sysex_msg[3] = proto_major
+    sysex_msg[4] = proto_minor
+    sysex_msg[5] = sx_end
+    SendSysex sysex_msg, 6
 @End
 
-@HandleWatchSet
-    // Payload: pairs of (ch, cc) from byte 3 up to SysexSize-1 (F7 terminator)
+@EmitCCValue
+    sysex_msg[0] = sx_start
+    sysex_msg[1] = sx_tag
+    sysex_msg[2] = rsp_cc_value
+    sysex_msg[3] = MIDIChannel
+    sysex_msg[4] = MIDIByte2
+    sysex_msg[5] = MIDIByte3
+    sysex_msg[6] = sx_end
+    SendSysex sysex_msg, 7
+@End
+
+@EmitNoteOn
+    sysex_msg[0] = sx_start
+    sysex_msg[1] = sx_tag
+    sysex_msg[2] = rsp_note_on
+    sysex_msg[3] = MIDIChannel
+    sysex_msg[4] = MIDIByte2
+    sysex_msg[5] = MIDIByte3
+    sysex_msg[6] = sx_end
+    SendSysex sysex_msg, 7
+@End
+
+@EmitNoteOff
+    sysex_msg[0] = sx_start
+    sysex_msg[1] = sx_tag
+    sysex_msg[2] = rsp_note_off
+    sysex_msg[3] = MIDIChannel
+    sysex_msg[4] = MIDIByte2
+    sysex_msg[5] = sx_end
+    SendSysex sysex_msg, 6
+@End
+
+@ReplayValues
+    // Walk every watched cell; emit cached value if known.
+    // 2048 iterations in Mozaic is well under a millisecond.
+    for ch = 0 to 15
+        for cc = 0 to 127
+            idx = ch * 128 + cc
+            if watch_mask[idx] = 1
+                if cc_values[idx] >= 0
+                    sysex_msg[0] = sx_start
+                    sysex_msg[1] = sx_tag
+                    sysex_msg[2] = rsp_cc_value
+                    sysex_msg[3] = ch
+                    sysex_msg[4] = cc
+                    sysex_msg[5] = cc_values[idx]
+                    sysex_msg[6] = sx_end
+                    SendSysex sysex_msg, 7
+                endif
+            endif
+        endfor
+    endfor
+@End
+
+@HandleWatchCC
+    // Payload: pairs of (ch, cc) starting at byte 3, ending before F7
     i = 3
+    end_i = SysexSize - 1
     added = 0
-    while i < SysexSize - 1
+    while (i < end_i)
         ch = rx[i]
         cc = rx[i + 1]
-        if ch < 16 and cc < 128
-            idx = ch * 128 + cc
-            watch_mask[idx] = 1
-            added = added + 1
+        if ch < 16
+            if cc < 128
+                idx = ch * 128 + cc
+                watch_mask[idx] = 1
+                added = added + 1
+            endif
         endif
         i = i + 2
     endwhile
-    Log {WATCH_SET +}, added
+    Log {WATCH_CC +}, added
+@End
+
+@HandleWatchNotes
+    // Payload: list of channel numbers (0-15)
+    i = 3
+    end_i = SysexSize - 1
+    added = 0
+    while (i < end_i)
+        ch = rx[i]
+        if ch < 16
+            note_watch[ch] = 1
+            added = added + 1
+        endif
+        i = i + 1
+    endwhile
+    Log {WATCH_NOTES +}, added
+@End
+
+@HandleClear
+    FillArray watch_mask, 0, 2048
+    FillArray note_watch, 0, 16
+    FillArray cc_values, -1, 2048
+    Log {CLEAR_WATCHES}
+@End
+
+@HandlePage
+    if SysexSize >= 5
+        active_page = rx[3]
+        // Echo back so Mac can confirm we received it
+        sysex_msg[0] = sx_start
+        sysex_msg[1] = sx_tag
+        sysex_msg[2] = rsp_page_ack
+        sysex_msg[3] = active_page
+        sysex_msg[4] = sx_end
+        SendSysex sysex_msg, 5
+        Log {PAGE = }, active_page
+    endif
 @End
