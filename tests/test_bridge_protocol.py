@@ -125,7 +125,66 @@ class TestEventDecoder(unittest.TestCase):
 class TestProtocolVersion(unittest.TestCase):
 
     def test_version_constant(self):
-        self.assertEqual(bp.PROTOCOL_VERSION, (1, 1))
+        self.assertEqual(bp.PROTOCOL_VERSION, (1, 2))
+
+
+class TestV12Requests(unittest.TestCase):
+
+    def test_get_health(self):
+        msg = bp.get_health()
+        self.assertEqual(bp.parse(msg), (bp.CMD_GET_HEALTH, ()))
+
+    def test_route_set_single_chunk(self):
+        routes = [bp.Route(0, 1, 20, 2, 40),
+                  bp.Route(1, 1, 20, 3, 60)]
+        msgs = bp.route_set(routes)
+        self.assertEqual(len(msgs), 1)
+        cmd, payload = bp.parse(msgs[0])  # type: ignore[misc]
+        self.assertEqual(cmd, bp.CMD_ROUTE_SET)
+        self.assertEqual(payload, (0, 1, 20, 2, 40, 1, 1, 20, 3, 60))
+
+    def test_route_set_chunks_when_large(self):
+        routes = [bp.Route(p, 0, c, 1, c)
+                  for p in range(4) for c in range(20, 100)]
+        msgs = bp.route_set(routes)
+        self.assertGreater(len(msgs), 1)
+        # verify round-trip
+        recovered: list[bp.Route] = []
+        for m in msgs:
+            _cmd, payload = bp.parse(m)  # type: ignore[misc]
+            for i in range(0, len(payload), 5):
+                recovered.append(bp.Route(*payload[i:i + 5]))
+        self.assertEqual(recovered, routes)
+
+    def test_route_clear(self):
+        self.assertEqual(bp.parse(bp.route_clear()), (bp.CMD_ROUTE_CLEAR, ()))
+
+    def test_scene_save(self):
+        msg = bp.scene_save(3)
+        self.assertEqual(bp.parse(msg), (bp.CMD_SCENE_SAVE, (3,)))
+
+    def test_scene_recall(self):
+        msg = bp.scene_recall(5)
+        self.assertEqual(bp.parse(msg), (bp.CMD_SCENE_RECALL, (5,)))
+
+
+class TestHealthEvent(unittest.TestCase):
+
+    def _bridge_msg(self, opcode: int, payload: list[int]) -> mido.Message:
+        return mido.Message('sysex', data=[bp.SX_TAG, opcode] + payload)
+
+    def test_health_decodes_14bit_counts(self):
+        # 300 in = (300 >> 7=2, 300 & 0x7F=44) -> (2, 44)
+        msg = self._bridge_msg(bp.RSP_HEALTH, [2, 44, 0, 5, 3, 0b00000011])
+        ev = bp.parse_event(msg)
+        self.assertIsInstance(ev, bp.Health)
+        assert isinstance(ev, bp.Health)
+        self.assertEqual(ev.msgs_in, 300)
+        self.assertEqual(ev.msgs_out, 5)
+        self.assertEqual(ev.routes, 3)
+        self.assertTrue(ev.has_scene(0))
+        self.assertTrue(ev.has_scene(1))
+        self.assertFalse(ev.has_scene(2))
 
 
 if __name__ == '__main__':

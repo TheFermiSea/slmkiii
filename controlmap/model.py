@@ -43,10 +43,23 @@ class ControlSlot:
 
 @dataclass(frozen=True)
 class ParameterRef:
-    """Reference to a plugin parameter."""
+    """Reference to a plugin parameter.
+
+    Optional metadata (unit, value range, taper, discrete labels) drives
+    rich on-surface rendering — e.g., showing '437 Hz' instead of '65',
+    or 'On'/'Off' instead of '127'/'0'. All metadata fields default to
+    sensible empty values so older plugin JSONs keep working.
+    """
     plugin_id: str          # e.g., "ua_battalion"
     param_path: str         # e.g., "drumProtoParams.drum1params.drum1cutoff"
     display_name: str = ""  # max 9 chars for SL MkIII screens
+    unit: str = ""          # e.g., 'Hz', 'dB', '%', 'st', 'ms'
+    value_min: float = 0.0  # real-world min (e.g., 20 for Hz)
+    value_max: float = 1.0  # real-world max (e.g., 20000 for Hz)
+    taper: str = "lin"      # 'lin' | 'log' | 'exp'
+    # Discrete labels for stepped/toggle parameters: tuple of strings indexed
+    # by raw 0-127 value bucketed into len(discrete_labels). Empty = continuous.
+    discrete_labels: tuple[str, ...] = ()
 
 
 @dataclass
@@ -100,6 +113,21 @@ class MappingSpec:
     reserved_bindings: list[Binding] = field(default_factory=list)
     midi_channel_base: int = 1
     strategy: str = "affinity"
+    # Per-page CC routes: hardware (in_ch, in_cc) on a given page is rewritten
+    # to (out_ch, out_cc) before hitting AUM's MIDI mapping / plugin chain.
+    # Pushed to the Mozaic bridge as ROUTE_SET commands. Channels are
+    # 1-indexed user-facing (matches midi_channel_base convention).
+    routes: list['RouteSpec'] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RouteSpec:
+    """A per-page CC route declaration in a MappingSpec."""
+    page: int
+    in_channel: int      # 1-indexed user-facing
+    in_cc: int
+    out_channel: int     # 1-indexed user-facing
+    out_cc: int
 
 
 @dataclass

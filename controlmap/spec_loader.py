@@ -25,7 +25,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from controlmap.model import MappingSpec
+from controlmap.model import MappingSpec, RouteSpec
 
 
 def load_spec(path: str | Path) -> MappingSpec:
@@ -90,6 +90,33 @@ def spec_from_dict(data: dict[str, Any], source: str | None = None) -> MappingSp
         raise ValueError("'priorities' must be a mapping of path -> int")
     param_priorities = {str(k): int(v) for k, v in raw_priorities.items()}
 
+    raw_routes = data.get('routes', [])
+    if not isinstance(raw_routes, list):
+        raise ValueError("'routes' must be a list of route entries")
+    routes: list[RouteSpec] = []
+    for entry in raw_routes:
+        if not isinstance(entry, dict):
+            raise ValueError(f"route entry must be a mapping, got {type(entry).__name__}")
+
+        def _get(key_a: str, key_b: str | None = None):
+            if key_a in entry:
+                return entry[key_a]
+            if key_b is not None and key_b in entry:
+                return entry[key_b]
+            raise ValueError(f"route entry missing {key_a!r}: {entry!r}")
+
+        try:
+            routes.append(RouteSpec(
+                page=int(_get('page')),
+                in_channel=int(_get('in_channel', 'in_ch')),
+                in_cc=int(_get('in_cc')),
+                out_channel=int(_get('out_channel', 'out_ch')),
+                out_cc=int(_get('out_cc')),
+            ))
+        except (KeyError, TypeError, ValueError) as e:
+            raise ValueError(
+                f"invalid route entry {entry!r}: {e}") from e
+
     return MappingSpec(
         name=str(name),
         controller_id=str(controller),
@@ -98,4 +125,5 @@ def spec_from_dict(data: dict[str, Any], source: str | None = None) -> MappingSp
         param_selections=param_selections,
         param_priorities=param_priorities,
         midi_channel_base=midi_channel_base,
+        routes=routes,
     )

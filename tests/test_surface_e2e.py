@@ -93,10 +93,16 @@ class TestProtocolBridgeAlignment(unittest.TestCase):
             (bp.CMD_WATCH_NOTES,   'cmd_watch_notes = 0x03'),
             (bp.CMD_CLEAR_WATCHES, 'cmd_clear       = 0x04'),
             (bp.CMD_PAGE,          'cmd_page        = 0x05'),
+            (bp.CMD_GET_HEALTH,    'cmd_get_health  = 0x06'),
+            (bp.CMD_ROUTE_SET,     'cmd_route_set   = 0x07'),
+            (bp.CMD_ROUTE_CLEAR,   'cmd_route_clear = 0x08'),
+            (bp.CMD_SCENE_SAVE,    'cmd_scene_save  = 0x09'),
+            (bp.CMD_SCENE_RECALL,  'cmd_scene_recall = 0x0A'),
             (bp.RSP_HELLO_ACK,     'rsp_hello_ack = 0x10'),
             (bp.RSP_CC_VALUE,      'rsp_cc_value  = 0x11'),
             (bp.RSP_NOTE_ON,       'rsp_note_on   = 0x12'),
             (bp.RSP_NOTE_OFF,      'rsp_note_off  = 0x13'),
+            (bp.RSP_HEALTH,        'rsp_health    = 0x14'),
             (bp.RSP_PAGE_ACK,      'rsp_page_ack  = 0x15'),
         ]
         for _expected_value, fragment in cases:

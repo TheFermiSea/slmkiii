@@ -73,6 +73,11 @@ class Paginator:
                     plugin_id='',  # filled by compile_mapping
                     param_path=param.path,
                     display_name=param.display_name,
+                    unit=param.unit,
+                    value_min=param.value_min,
+                    value_max=param.value_max,
+                    taper=param.taper,
+                    discrete_labels=tuple(param.discrete_labels),
                 ),
                 midi_channel=0,  # filled by CCAllocator
                 midi_cc=0,       # filled by CCAllocator

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from controlmap.model import (  # noqa: F401 — re-exported for public API
     MappingSpec, ResolvedMapping, Binding, Page, PageSet,
-    ControlSlot, ParameterRef, ControlType, ParamType,
+    ControlSlot, ParameterRef, ControlType, ParamType, RouteSpec,
 )
 from controlmap.controllers.registry import load_controller
 from controlmap.plugins.registry import load_plugin

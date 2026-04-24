@@ -13,7 +13,11 @@
           "param_type": "continuous",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "unit": "st",
+          "value_min": -24,
+          "value_max": 24,
+          "taper": "lin"
         },
         {
           "path": "env_reset_t",
@@ -21,7 +25,11 @@
           "param_type": "toggle",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "discrete_labels": [
+            "Off",
+            "On"
+          ]
         },
         {
           "path": "orb_rate_k",
@@ -29,7 +37,11 @@
           "param_type": "continuous",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "unit": "Hz",
+          "value_min": 0.01,
+          "value_max": 20,
+          "taper": "log"
         },
         {
           "path": "orb_sync_t",
@@ -37,7 +49,11 @@
           "param_type": "toggle",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "discrete_labels": [
+            "Off",
+            "On"
+          ]
         },
         {
           "path": "orb_x_k",
@@ -45,7 +61,11 @@
           "param_type": "continuous",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "unit": "",
+          "value_min": 0,
+          "value_max": 1,
+          "taper": "lin"
         },
         {
           "path": "orb_y_k",
@@ -53,7 +73,11 @@
           "param_type": "continuous",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "unit": "",
+          "value_min": 0,
+          "value_max": 1,
+          "taper": "lin"
         },
         {
           "path": "orb_z_k",
@@ -109,7 +133,11 @@
           "param_type": "toggle",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "discrete_labels": [
+            "Off",
+            "On"
+          ]
         },
         {
           "path": "syn_glide_k",
@@ -125,7 +153,11 @@
           "param_type": "toggle",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "discrete_labels": [
+            "Off",
+            "On"
+          ]
         },
         {
           "path": "syn_legato_t",
@@ -133,7 +165,11 @@
           "param_type": "toggle",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "discrete_labels": [
+            "Off",
+            "On"
+          ]
         },
         {
           "path": "syn_mono_t",
@@ -141,7 +177,11 @@
           "param_type": "toggle",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "discrete_labels": [
+            "Off",
+            "On"
+          ]
         },
         {
           "path": "syn_voice_limit_k",
@@ -165,7 +205,11 @@
           "param_type": "toggle",
           "group": "root",
           "priority": 50,
-          "tags": []
+          "tags": [],
+          "discrete_labels": [
+            "Off",
+            "On"
+          ]
         },
         {
           "path": "z_mult_k",

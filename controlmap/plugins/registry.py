@@ -42,6 +42,11 @@ def load_plugin(plugin_id: str) -> PluginParamDB:
                 group=group_name,
                 priority=p.get('priority', 50),
                 tags=p.get('tags', []),
+                unit=p.get('unit', ''),
+                value_min=float(p.get('value_min', 0.0)),
+                value_max=float(p.get('value_max', 1.0)),
+                taper=p.get('taper', 'lin'),
+                discrete_labels=list(p.get('discrete_labels', [])),
             )
             params[param.path] = param
 

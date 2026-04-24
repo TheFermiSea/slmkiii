@@ -17,6 +17,12 @@ class PluginParam:
     group: str = ''
     priority: int = 50         # 0=unimportant, 100=essential
     tags: list[str] = field(default_factory=list)
+    # Optional rich metadata for unit-aware rendering. All have safe defaults.
+    unit: str = ''
+    value_min: float = 0.0
+    value_max: float = 1.0
+    taper: str = 'lin'
+    discrete_labels: list[str] = field(default_factory=list)
 
 
 @dataclass

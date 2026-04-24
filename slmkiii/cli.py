@@ -169,8 +169,103 @@ def cmd_surface_run(args):
         resolved,
         midi_output=args.ipad_port,
         feedback_port=args.feedback_port or args.ipad_port,
+        spec_path=args.spec if not args.no_hot_reload else None,
     )
     surface.run()
+
+
+def cmd_surface_monitor(args):
+    """Tail bridge events on the iPad port for debugging.
+
+    Prints every parsed bridge event (CC_VALUE, NOTE_ON, HEALTH, ...) to the
+    console. Also supports sending GET_VALUES / GET_HEALTH / SCENE_* commands
+    to poke the bridge.
+    """
+    import time
+    import mido
+    from controlmap import bridge_protocol as bp
+
+    port_out = mido.open_output(args.ipad_port)
+    port_in = mido.open_input(args.ipad_port)
+
+    if args.hello:
+        port_out.send(bp.hello())
+    if args.get_health:
+        port_out.send(bp.get_health())
+    if args.get_values:
+        port_out.send(bp.get_values())
+    if args.scene_recall is not None:
+        port_out.send(bp.scene_recall(args.scene_recall))
+        print(f'sent SCENE_RECALL {args.scene_recall}')
+    if args.scene_save is not None:
+        port_out.send(bp.scene_save(args.scene_save))
+        print(f'sent SCENE_SAVE {args.scene_save}')
+    if args.page is not None:
+        port_out.send(bp.page(args.page))
+        print(f'sent PAGE {args.page}')
+
+    import signal
+    running = True
+
+    def stop(_sig, _frame):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGINT, stop)
+    print(f'monitor: listening on {args.ipad_port} (Ctrl-C to stop)')
+    while running:
+        for msg in port_in.iter_pending():
+            event = bp.parse_event(msg)
+            if event is not None:
+                print(event)
+            elif args.verbose and msg.type == 'sysex':
+                print(f'raw sysex: {bytes(msg.data).hex()}')
+        time.sleep(0.01)
+    port_out.close()
+    port_in.close()
+
+
+def cmd_surface_scene(args):
+    """Send SCENE_SAVE or SCENE_RECALL to the bridge."""
+    import mido
+    from controlmap import bridge_protocol as bp
+
+    port = mido.open_output(args.ipad_port)
+    if args.action == 'save':
+        port.send(bp.scene_save(args.scene))
+    else:
+        port.send(bp.scene_recall(args.scene))
+    port.close()
+    print(f'scene {args.action} {args.scene} sent')
+
+
+def cmd_surface_health(args):
+    """Request and display a health snapshot from the bridge."""
+    import time
+    import mido
+    from controlmap import bridge_protocol as bp
+
+    port_out = mido.open_output(args.ipad_port)
+    port_in = mido.open_input(args.ipad_port)
+    port_out.send(bp.get_health())
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        for msg in port_in.iter_pending():
+            event = bp.parse_event(msg)
+            if isinstance(event, bp.Health):
+                print(f'msgs_in:    {event.msgs_in}')
+                print(f'msgs_out:   {event.msgs_out}')
+                print(f'routes:     {event.routes}')
+                print(f'scenes:     {event.scene_mask:08b} '
+                      f'(occupied: {[i for i in range(8) if event.has_scene(i)]})')
+                port_out.close()
+                port_in.close()
+                return
+        time.sleep(0.01)
+    port_out.close()
+    port_in.close()
+    print(f'timeout: no HEALTH reply on {args.ipad_port}', file=sys.stderr)
+    sys.exit(1)
 
 
 def cmd_surface_inspect(args):
@@ -244,12 +339,50 @@ def _add_surface_subparsers(subparsers):
     p_run.add_argument(
         "--feedback-port", default=None,
         help="Separate MIDI input port for bridge echoes (default: same as --ipad-port)")
+    p_run.add_argument(
+        "--no-hot-reload", action="store_true",
+        help="Disable automatic reload on spec file change")
     p_run.set_defaults(func=cmd_surface_run)
 
     p_inspect = surface_subs.add_parser(
         "inspect", help="Show what a spec compiles to (no I/O)")
     p_inspect.add_argument("spec", help="Path to YAML/JSON mapping spec")
     p_inspect.set_defaults(func=cmd_surface_inspect)
+
+    p_monitor = surface_subs.add_parser(
+        "monitor", help="Tail bridge events on the iPad port (for debugging)")
+    p_monitor.add_argument(
+        "--ipad-port", default="iPad",
+        help="MIDI port name for iDAM I/O (default: iPad)")
+    p_monitor.add_argument("--hello", action="store_true",
+                           help="Send HELLO before listening")
+    p_monitor.add_argument("--get-values", action="store_true",
+                           help="Request cached CC values from bridge")
+    p_monitor.add_argument("--get-health", action="store_true",
+                           help="Request a health snapshot")
+    p_monitor.add_argument("--page", type=int, default=None,
+                           help="Send PAGE command before listening")
+    p_monitor.add_argument("--scene-save", type=int, default=None,
+                           help="Send SCENE_SAVE for scene N before listening")
+    p_monitor.add_argument("--scene-recall", type=int, default=None,
+                           help="Send SCENE_RECALL for scene N before listening")
+    p_monitor.add_argument("-v", "--verbose", action="store_true",
+                           help="Also print raw sysex bytes")
+    p_monitor.set_defaults(func=cmd_surface_monitor)
+
+    p_scene = surface_subs.add_parser(
+        "scene", help="Save or recall a scene on the bridge")
+    p_scene.add_argument("action", choices=["save", "recall"])
+    p_scene.add_argument("scene", type=int, help="Scene index 0-7")
+    p_scene.add_argument(
+        "--ipad-port", default="iPad", help="MIDI port (default: iPad)")
+    p_scene.set_defaults(func=cmd_surface_scene)
+
+    p_health = surface_subs.add_parser(
+        "health", help="Request a health snapshot from the bridge")
+    p_health.add_argument(
+        "--ipad-port", default="iPad", help="MIDI port (default: iPad)")
+    p_health.set_defaults(func=cmd_surface_health)
 
 
 def main():

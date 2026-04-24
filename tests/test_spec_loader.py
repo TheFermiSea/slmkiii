@@ -68,6 +68,35 @@ class TestSpecFromDict(unittest.TestCase):
                 'priorities': ['list', 'not', 'dict'],
             })
 
+    def test_routes_parsed(self):
+        spec = spec_from_dict({
+            'name': 'x', 'controller': 'a', 'plugin': 'b',
+            'routes': [
+                {'page': 0, 'in_ch': 1, 'in_cc': 20, 'out_ch': 2, 'out_cc': 40},
+                {'page': 1, 'in_channel': 1, 'in_cc': 20,
+                 'out_channel': 3, 'out_cc': 50},
+            ],
+        })
+        self.assertEqual(len(spec.routes), 2)
+        self.assertEqual(spec.routes[0].page, 0)
+        self.assertEqual(spec.routes[0].in_channel, 1)
+        self.assertEqual(spec.routes[0].out_cc, 40)
+        self.assertEqual(spec.routes[1].out_channel, 3)
+
+    def test_route_missing_field_raises(self):
+        with self.assertRaises(ValueError):
+            spec_from_dict({
+                'name': 'x', 'controller': 'a', 'plugin': 'b',
+                'routes': [{'page': 0, 'in_cc': 20}],  # missing most fields
+            })
+
+    def test_routes_must_be_list(self):
+        with self.assertRaises(ValueError):
+            spec_from_dict({
+                'name': 'x', 'controller': 'a', 'plugin': 'b',
+                'routes': 'not a list',
+            })
+
 
 class TestLoadSpecFromFile(unittest.TestCase):
 

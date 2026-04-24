@@ -28,6 +28,7 @@ from slmkiii.incontrol import (
 )
 from controlmap.model import MsgType, ResolvedMapping, Binding
 from controlmap import bridge_protocol
+from controlmap.value_format import format_value
 
 # Derive LED groups from sequential enum values
 _BUTTON_LEDS = [LED(LED.SOFT_BUTTON_1 + i) for i in range(16)]
@@ -61,7 +62,8 @@ class ControlSurface:
     """
 
     def __init__(self, resolved: ResolvedMapping, midi_output: str | None = None,
-                 feedback_port: str | None = None):
+                 feedback_port: str | None = None,
+                 spec_path: str | None = None):
         """Initialize the control surface.
 
         Args:
@@ -101,6 +103,18 @@ class ControlSurface:
         # Reverse index for feedback: (channel_0idx, cc) -> (group, slot_index)
         # Built lazily when feedback is enabled.
         self._feedback_index: dict[tuple[int, int], tuple[str, int]] | None = None
+
+        # Hot reload: remember spec file path and its last known mtime so we
+        # can detect edits and re-push the watch table without restarting.
+        self._spec_path = spec_path
+        self._spec_mtime: float = 0.0
+        if spec_path is not None:
+            try:
+                import os
+                self._spec_mtime = os.path.getmtime(spec_path)
+            except OSError:
+                self._spec_mtime = 0.0
+        self._last_reload_check: float = 0.0
 
     @property
     def current_page(self):
@@ -155,11 +169,11 @@ class ControlSurface:
             if binding:
                 name = binding.param.display_name or binding.param.param_path.split('.')[-1][:9]
                 val = self._values.get(('knobs', i), 0)
-                pct = round(val / 127 * 100)
+                display = format_value(val, binding.param)
                 # Batch: text + value + color in one SysEx per column
                 ic.set_screen_properties(i, [
                     (PROP_TEXT, 0, name[:9].encode('ascii', errors='replace') + b'\x00'),
-                    (PROP_TEXT, 2, f'{pct}%'.encode('ascii') + b'\x00'),
+                    (PROP_TEXT, 2, display.encode('ascii', errors='replace') + b'\x00'),
                     (PROP_VALUE, 0, val),
                     (PROP_COLOUR, 0, COLOR_CYAN),
                 ])
@@ -204,8 +218,13 @@ class ControlSurface:
         if now - last < _SCREEN_UPDATE_INTERVAL:
             return
         self._last_screen_update[knob_index] = now
-        pct = round(value / 127 * 100)
-        ic.set_text(knob_index, 2, f'{pct}%')
+        bindings = self._bindings_by_slot()
+        binding = bindings.get(('knobs', knob_index))
+        if binding:
+            display = format_value(value, binding.param)
+        else:
+            display = f'{round(value / 127 * 100)}%'
+        ic.set_text(knob_index, 2, display)
         ic.set_value(knob_index, 0, value)
 
     def _switch_page(self, ic: InControlConnection, direction: int):
@@ -281,6 +300,50 @@ class ControlSurface:
                         if binding:
                             self._send_midi(binding, 0)
 
+    def _maybe_hot_reload(self, ic: InControlConnection):
+        """If the spec file on disk has changed, recompile and rebind live.
+
+        Checked at most once per second to keep the poll loop cheap.
+        """
+        if self._spec_path is None:
+            return
+        now = time.monotonic()
+        if now - self._last_reload_check < 1.0:
+            return
+        self._last_reload_check = now
+        import os
+        try:
+            mtime = os.path.getmtime(self._spec_path)
+        except OSError:
+            return
+        if mtime <= self._spec_mtime:
+            return
+
+        print(f'spec changed ({self._spec_path}); reloading…')
+        try:
+            from controlmap import compile_mapping
+            from controlmap.spec_loader import load_spec
+            spec = load_spec(self._spec_path)
+            resolved = compile_mapping(spec)
+        except Exception as e:
+            print(f'  reload failed: {e}')
+            self._spec_mtime = mtime  # don't keep retrying on a bad file
+            return
+
+        self._spec_mtime = mtime
+        self._resolved = resolved
+        self._pages = resolved.page_set.pages
+        self._current_page = min(self._current_page, max(0, len(self._pages) - 1))
+        self._invalidate_cache()
+        self._build_feedback_index()
+        if self._feedback_in is not None:
+            self._push_watch_table()
+        self._refresh_screens(ic)
+        self._refresh_leds(ic)
+        ic.notify('Reloaded', self._spec_path.split('/')[-1][:18])
+        print(f'  reloaded: {resolved.metadata["param_count"]} params, '
+              f'{resolved.metadata["page_count"]} pages')
+
     def _build_feedback_index(self):
         """Build a reverse index from (channel_0idx, cc) -> (group, slot_index)
         across every page. Used to route incoming echo sysex back to the right
@@ -295,26 +358,42 @@ class ControlSurface:
         self._feedback_index = index
 
     def _push_watch_table(self):
-        """Send CLEAR_WATCHES + WATCH_CC + WATCH_NOTES to the Mozaic bridge,
-        then GET_VALUES to replay any cached state. Idempotent — safe to call
-        on every reconnect."""
+        """Send CLEAR_WATCHES + WATCH_CC + WATCH_NOTES + ROUTE_SET to the
+        Mozaic bridge, then GET_VALUES to replay any cached state.
+        Idempotent — safe to call on every reconnect or hot-reload."""
         if self._midi_out is None or self._feedback_index is None:
             return
         self._midi_out.send(bridge_protocol.clear_watches())
+        self._midi_out.send(bridge_protocol.route_clear())
+
         pairs = list(self._feedback_index.keys())
         for msg in bridge_protocol.watch_cc(pairs):
             self._midi_out.send(msg)
             time.sleep(0.01)
-        # Watch notes on every channel that has a Note binding
+
         note_chs = sorted({b.midi_channel - 1 for page in self._pages
                            for b in page.bindings
                            if b.msg_type is MsgType.NOTE})
         if note_chs:
             self._midi_out.send(bridge_protocol.watch_notes(note_chs))
-        # Ask the bridge to replay any cached state so screens populate
-        # immediately instead of waiting for the user to wiggle a knob.
+
+        # Push any per-page routes declared on the spec
+        spec_routes = getattr(self._resolved.spec, 'routes', None) or []
+        if spec_routes:
+            routes = [bridge_protocol.Route(
+                page=r.page,
+                in_ch=r.in_channel - 1,
+                in_cc=r.in_cc,
+                out_ch=r.out_channel - 1,
+                out_cc=r.out_cc,
+            ) for r in spec_routes]
+            for msg in bridge_protocol.route_set(routes):
+                self._midi_out.send(msg)
+                time.sleep(0.01)
+
         self._midi_out.send(bridge_protocol.get_values())
-        print(f'Bridge: watching {len(pairs)} CC + {len(note_chs)} note channels')
+        print(f'Bridge: watching {len(pairs)} CC + {len(note_chs)} note chans'
+              f' + {len(spec_routes)} routes')
 
     def _handle_feedback(self, ic: InControlConnection):
         """Drain incoming bridge events and update screens/state."""
@@ -382,6 +461,7 @@ class ControlSurface:
             while running:
                 self._handle_input(ic)
                 self._handle_feedback(ic)
+                self._maybe_hot_reload(ic)
                 time.sleep(0.005)
 
             # Clean up
