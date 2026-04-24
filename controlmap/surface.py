@@ -27,6 +27,7 @@ from slmkiii.incontrol import (
     PROP_TEXT, PROP_COLOUR, PROP_VALUE,
 )
 from controlmap.model import MsgType, ResolvedMapping, Binding
+from controlmap import bridge_protocol
 
 # Derive LED groups from sequential enum values
 _BUTTON_LEDS = [LED(LED.SOFT_BUTTON_1 + i) for i in range(16)]
@@ -59,7 +60,8 @@ class ControlSurface:
     - MIDI forwarding to DAW (replaces template-mode MIDI output)
     """
 
-    def __init__(self, resolved: ResolvedMapping, midi_output: str | None = None):
+    def __init__(self, resolved: ResolvedMapping, midi_output: str | None = None,
+                 feedback_port: str | None = None):
         """Initialize the control surface.
 
         Args:
@@ -67,6 +69,13 @@ class ControlSurface:
             midi_output: MIDI output port name for forwarding CC/Note
                          to the DAW (e.g., 'iPad' for AUM via iDAM).
                          If None, no MIDI is forwarded.
+            feedback_port: Optional MIDI input port name for bidirectional
+                           feedback from the slmk_bridge Mozaic script. When
+                           provided, on startup the surface pushes a watch
+                           table for every bound (channel, cc) and listens
+                           for VALUE echoes to keep screens in sync with
+                           plugin state. Usually the same port as
+                           midi_output (iDAM is bidirectional).
         """
         self._resolved = resolved
         self._pages = resolved.page_set.pages
@@ -74,6 +83,8 @@ class ControlSurface:
         self._ic: InControlConnection | None = None
         self._midi_output_name = midi_output
         self._midi_out = None
+        self._feedback_port_name = feedback_port
+        self._feedback_in = None
 
         # Track current values per binding (for screen display)
         self._values: dict[tuple[str, int], int] = {}
@@ -86,6 +97,10 @@ class ControlSurface:
 
         # Rate limiting for knob screen updates
         self._last_screen_update: dict[int, float] = {}
+
+        # Reverse index for feedback: (channel_0idx, cc) -> (group, slot_index)
+        # Built lazily when feedback is enabled.
+        self._feedback_index: dict[tuple[int, int], tuple[str, int]] | None = None
 
     @property
     def current_page(self):
@@ -266,6 +281,53 @@ class ControlSurface:
                         if binding:
                             self._send_midi(binding, 0)
 
+    def _build_feedback_index(self):
+        """Build a reverse index from (channel_0idx, cc) -> (group, slot_index)
+        across every page. Used to route incoming echo sysex back to the right
+        knob column regardless of which page is active."""
+        index: dict[tuple[int, int], tuple[str, int]] = {}
+        for page in self._pages:
+            for b in page.bindings:
+                if b.msg_type is not MsgType.CC:
+                    continue
+                key = (b.midi_channel - 1, b.midi_cc)
+                index[key] = (b.slot.group, b.slot.index)
+        self._feedback_index = index
+
+    def _push_watch_table(self):
+        """Send WATCH_CLEAR + WATCH_SET to the Mozaic bridge for every CC
+        binding across all pages. Mozaic will then echo only those CCs back."""
+        if self._midi_out is None or self._feedback_index is None:
+            return
+        self._midi_out.send(bridge_protocol.watch_clear())
+        pairs = list(self._feedback_index.keys())
+        for msg in bridge_protocol.watch_set(pairs):
+            self._midi_out.send(msg)
+            time.sleep(0.01)
+        print(f'Bridge: watching {len(pairs)} CC bindings')
+
+    def _handle_feedback(self, ic: InControlConnection):
+        """Drain any incoming sysex echoes and update screens/values."""
+        if self._feedback_in is None or self._feedback_index is None:
+            return
+        for msg in self._feedback_in.iter_pending():
+            parsed = bridge_protocol.parse(msg)
+            if parsed is None:
+                continue
+            cmd, payload = parsed
+            if cmd == bridge_protocol.SX_VALUE and len(payload) >= 3:
+                ch, cc, val = payload[0], payload[1], payload[2]
+                slot = self._feedback_index.get((ch, cc))
+                if slot is None:
+                    continue
+                self._values[slot] = val
+                # Only update screens if the slot is a knob on the current page.
+                bindings = self._bindings_by_slot()
+                if slot in bindings and slot[0] == 'knobs' and slot[1] < 8:
+                    self._update_knob_screen(ic, slot[1], val)
+            elif cmd == bridge_protocol.SX_HELLO:
+                print('Bridge: HELLO from iPad')
+
     def run(self):
         """Run the control surface daemon. Blocks until Ctrl-C."""
         running = True
@@ -285,15 +347,24 @@ class ControlSurface:
             self._midi_out = mido.open_output(self._midi_output_name)
             print(f'MIDI output: {self._midi_output_name}')
 
+        if self._feedback_port_name:
+            self._feedback_in = mido.open_input(self._feedback_port_name)
+            self._build_feedback_index()
+            print(f'MIDI feedback: {self._feedback_port_name}')
+
         with InControlConnection() as ic:
             self._ic = ic
             print(f'Connected. Screen Up/Down to switch pages. Ctrl-C to stop.')
+
+            if self._feedback_in is not None:
+                self._push_watch_table()
 
             self._refresh_screens(ic)
             self._refresh_leds(ic)
 
             while running:
                 self._handle_input(ic)
+                self._handle_feedback(ic)
                 time.sleep(0.005)
 
             # Clean up
@@ -308,6 +379,9 @@ class ControlSurface:
         if self._midi_out:
             self._midi_out.close()
             self._midi_out = None
+        if self._feedback_in:
+            self._feedback_in.close()
+            self._feedback_in = None
         print('Control Surface stopped.')
 
     def run_once(self, ic: InControlConnection):

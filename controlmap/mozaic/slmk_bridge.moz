@@ -1,0 +1,116 @@
+// SLMK-BRIDGE - Dynamic bidirectional bridge for SL MkIII <-> AUM plugins
+//
+// Runs as a Mozaic AUv3 on the iDAM MIDI path. Mac controls it via sysex.
+//
+// Protocol (F0 7D = non-commercial / private manufacturer ID):
+//   F0 7D 01 F7                          HELLO (Mac <-> iPad)
+//   F0 7D 02 ch cc [ch cc ...] F7        WATCH_SET    Mac -> iPad
+//   F0 7D 03 F7                          WATCH_CLEAR  Mac -> iPad
+//   F0 7D 04 ch cc val F7                VALUE        iPad -> Mac
+//   F0 7D 05 page F7                     PAGE         Mac <-> iPad
+//
+// All bytes in payload are 0-127 (standard MIDI data byte range).
+
+@OnLoad
+    SetShortName {SLMK-BR}
+    ShowLayout 0
+    LabelPads {SLMK-BRIDGE - dynamic bidirectional bridge. Watch table set via sysex from Mac.}
+    Log {SLMK-BRIDGE loaded}
+
+    // watch_mask[ch*128 + cc] = 1 if we should echo that (ch, cc) back to Mac.
+    // Single flat array of 2048 flags (16 channels x 128 CCs).
+    FillArray watch_mask, 0, 2048
+
+    active_page = 0
+
+    // Private sysex tag
+    sx_tag1 = 0xF0
+    sx_tag2 = 0x7D
+    sx_hello       = 0x01
+    sx_watch_set   = 0x02
+    sx_watch_clear = 0x03
+    sx_value       = 0x04
+    sx_page        = 0x05
+
+    // Sysex scratch buffer
+    out_len = 0
+@End
+
+@OnMidiCC
+    // Pass-through: the CC still reaches AUM's MIDI mapping & any downstream plugins.
+    // Mozaic in an AUv3 chain passes MIDI through by default - we still re-emit
+    // explicitly so the value is authoritative (e.g., if a scene mute zeroed it).
+    SendMIDICC MIDIChannel, MIDIByte2, MIDIByte3
+
+    // Echo watched CCs back to Mac via iDAM output
+    idx = MIDIChannel * 128 + MIDIByte2
+    if watch_mask[idx] = 1
+        Call @EmitValue
+    endif
+@End
+
+@EmitValue
+    // F0 7D sx_value ch cc val F7
+    sysex_msg[0] = sx_tag1
+    sysex_msg[1] = sx_tag2
+    sysex_msg[2] = sx_value
+    sysex_msg[3] = MIDIChannel
+    sysex_msg[4] = MIDIByte2
+    sysex_msg[5] = MIDIByte3
+    sysex_msg[6] = 0xF7
+    SendSysex sysex_msg, 7
+@End
+
+@OnSysex
+    ReceiveSysex rx
+    // minimum 3-byte message (F0 7D TYPE F7)
+    if SysexSize < 4
+        Exit
+    endif
+    if rx[0] <> sx_tag1
+        Exit
+    endif
+    if rx[1] <> sx_tag2
+        Exit
+    endif
+
+    cmd = rx[2]
+
+    if cmd = sx_hello
+        Call @ReplyHello
+    elseif cmd = sx_watch_set
+        Call @HandleWatchSet
+    elseif cmd = sx_watch_clear
+        FillArray watch_mask, 0, 2048
+        Log {watch_mask cleared}
+    elseif cmd = sx_page
+        active_page = rx[3]
+        Log {active_page = }, active_page
+    endif
+@End
+
+@ReplyHello
+    sysex_msg[0] = sx_tag1
+    sysex_msg[1] = sx_tag2
+    sysex_msg[2] = sx_hello
+    sysex_msg[3] = 0xF7
+    SendSysex sysex_msg, 4
+    Log {HELLO replied}
+@End
+
+@HandleWatchSet
+    // Payload: pairs of (ch, cc) from byte 3 up to SysexSize-1 (F7 terminator)
+    i = 3
+    added = 0
+    while i < SysexSize - 1
+        ch = rx[i]
+        cc = rx[i + 1]
+        if ch < 16 and cc < 128
+            idx = ch * 128 + cc
+            watch_mask[idx] = 1
+            added = added + 1
+        endif
+        i = i + 2
+    endwhile
+    Log {WATCH_SET +}, added
+@End
