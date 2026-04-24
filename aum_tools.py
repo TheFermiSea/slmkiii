@@ -188,6 +188,9 @@ class ArchiverBuilder:
         """Encode a Python value as an NSKeyedArchiver object."""
         if val is None:
             return plistlib.UID(0)  # $null
+        elif isinstance(val, plistlib.UID):
+            # Already-encoded reference: pass through untouched.
+            return val
         elif isinstance(val, (bool, int, float, str)):
             return self._add_scalar(val)
         elif isinstance(val, dict):
@@ -196,6 +199,13 @@ class ArchiverBuilder:
             return self._encode_array(val)
         else:
             return self._add_object(val)
+
+    def encode_ns_mutable_data(self, data: bytes) -> plistlib.UID:
+        """Encode raw bytes as an NSMutableData instance; returns a UID that
+        can be embedded in any value position (e.g. a dict value)."""
+        cls = self._get_class_uid(
+            'NSMutableData', ['NSMutableData', 'NSData', 'NSObject'])
+        return self._add_object({'NS.data': data, '$class': cls})
 
     def _encode_dict(self, d: dict, *, mutable: bool = False) -> plistlib.UID:
         key_uids = []

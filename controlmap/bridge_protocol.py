@@ -202,25 +202,31 @@ class Health:
         return bool(self.scene_mask & (1 << scene))
 
 
+_EVENT_PARSERS: dict = {
+    RSP_CC_VALUE:   (3, lambda p: CCValue(p[0], p[1], p[2])),
+    RSP_NOTE_ON:    (3, lambda p: NoteEvent(p[0], p[1], p[2], on=True)),
+    RSP_NOTE_OFF:   (2, lambda p: NoteEvent(p[0], p[1], 0, on=False)),
+    RSP_HELLO_ACK:  (2, lambda p: HelloAck(p[0], p[1])),
+    RSP_PAGE_ACK:   (1, lambda p: PageAck(p[0])),
+    RSP_HEALTH:     (6, lambda p: Health(
+        msgs_in=(p[0] << 7) | p[1],
+        msgs_out=(p[2] << 7) | p[3],
+        routes=p[4],
+        scene_mask=p[5],
+    )),
+}
+
+
 def parse_event(msg: mido.Message):
     """Parse a bridge -> Mac message into a typed event, or None."""
     parsed = parse(msg)
     if parsed is None:
         return None
     op, payload = parsed
-    if op == RSP_CC_VALUE and len(payload) >= 3:
-        return CCValue(payload[0], payload[1], payload[2])
-    if op == RSP_NOTE_ON and len(payload) >= 3:
-        return NoteEvent(payload[0], payload[1], payload[2], on=True)
-    if op == RSP_NOTE_OFF and len(payload) >= 2:
-        return NoteEvent(payload[0], payload[1], 0, on=False)
-    if op == RSP_HELLO_ACK and len(payload) >= 2:
-        return HelloAck(payload[0], payload[1])
-    if op == RSP_PAGE_ACK and len(payload) >= 1:
-        return PageAck(payload[0])
-    if op == RSP_HEALTH and len(payload) >= 6:
-        msgs_in = (payload[0] << 7) | payload[1]
-        msgs_out = (payload[2] << 7) | payload[3]
-        return Health(msgs_in=msgs_in, msgs_out=msgs_out,
-                      routes=payload[4], scene_mask=payload[5])
-    return None
+    entry = _EVENT_PARSERS.get(op)
+    if entry is None:
+        return None
+    min_len, fn = entry
+    if len(payload) < min_len:
+        return None
+    return fn(payload)

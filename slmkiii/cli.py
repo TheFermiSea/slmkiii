@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import sys
 
 from slmkiii import Template
@@ -174,96 +175,99 @@ def cmd_surface_run(args):
     surface.run()
 
 
-def cmd_surface_monitor(args):
-    """Tail bridge events on the iPad port for debugging.
+@contextlib.contextmanager
+def _bridge_ports(name: str, duplex: bool = True):
+    """Open mido I/O port(s) for the iPad/bridge and close them on exit."""
+    import mido
+    port_out = mido.open_output(name)
+    port_in = mido.open_input(name) if duplex else None
+    try:
+        yield port_out, port_in
+    finally:
+        port_out.close()
+        if port_in is not None:
+            port_in.close()
 
-    Prints every parsed bridge event (CC_VALUE, NOTE_ON, HEALTH, ...) to the
-    console. Also supports sending GET_VALUES / GET_HEALTH / SCENE_* commands
-    to poke the bridge.
+
+def cmd_surface_monitor(args):
+    """Tail bridge events on the iPad port. Supports pre-sending commands
+    (HELLO, GET_VALUES, GET_HEALTH, PAGE, SCENE_SAVE/RECALL) before listening.
     """
+    import signal
     import time
     import mido
     from controlmap import bridge_protocol as bp
 
-    port_out = mido.open_output(args.ipad_port)
-    port_in = mido.open_input(args.ipad_port)
-
+    pre_sends: list[tuple[str, mido.Message]] = []
     if args.hello:
-        port_out.send(bp.hello())
+        pre_sends.append(('HELLO', bp.hello()))
     if args.get_health:
-        port_out.send(bp.get_health())
+        pre_sends.append(('GET_HEALTH', bp.get_health()))
     if args.get_values:
-        port_out.send(bp.get_values())
+        pre_sends.append(('GET_VALUES', bp.get_values()))
     if args.scene_recall is not None:
-        port_out.send(bp.scene_recall(args.scene_recall))
-        print(f'sent SCENE_RECALL {args.scene_recall}')
+        pre_sends.append((f'SCENE_RECALL {args.scene_recall}',
+                          bp.scene_recall(args.scene_recall)))
     if args.scene_save is not None:
-        port_out.send(bp.scene_save(args.scene_save))
-        print(f'sent SCENE_SAVE {args.scene_save}')
+        pre_sends.append((f'SCENE_SAVE {args.scene_save}',
+                          bp.scene_save(args.scene_save)))
     if args.page is not None:
-        port_out.send(bp.page(args.page))
-        print(f'sent PAGE {args.page}')
+        pre_sends.append((f'PAGE {args.page}', bp.page(args.page)))
 
-    import signal
-    running = True
+    with _bridge_ports(args.ipad_port) as (port_out, port_in):
+        for label, msg in pre_sends:
+            port_out.send(msg)
+            print(f'sent {label}')
 
-    def stop(_sig, _frame):
-        nonlocal running
-        running = False
+        running = True
 
-    signal.signal(signal.SIGINT, stop)
-    print(f'monitor: listening on {args.ipad_port} (Ctrl-C to stop)')
-    while running:
-        for msg in port_in.iter_pending():
-            event = bp.parse_event(msg)
-            if event is not None:
-                print(event)
-            elif args.verbose and msg.type == 'sysex':
-                print(f'raw sysex: {bytes(msg.data).hex()}')
-        time.sleep(0.01)
-    port_out.close()
-    port_in.close()
+        def stop(_sig, _frame):
+            nonlocal running
+            running = False
+
+        signal.signal(signal.SIGINT, stop)
+        print(f'monitor: listening on {args.ipad_port} (Ctrl-C to stop)')
+        while running:
+            for msg in port_in.iter_pending():
+                event = bp.parse_event(msg)
+                if event is not None:
+                    print(event)
+                elif args.verbose and msg.type == 'sysex':
+                    print(f'raw sysex: {bytes(msg.data).hex()}')
+            time.sleep(0.01)
 
 
 def cmd_surface_scene(args):
     """Send SCENE_SAVE or SCENE_RECALL to the bridge."""
-    import mido
     from controlmap import bridge_protocol as bp
 
-    port = mido.open_output(args.ipad_port)
-    if args.action == 'save':
-        port.send(bp.scene_save(args.scene))
-    else:
-        port.send(bp.scene_recall(args.scene))
-    port.close()
+    with _bridge_ports(args.ipad_port, duplex=False) as (port, _):
+        if args.action == 'save':
+            port.send(bp.scene_save(args.scene))
+        else:
+            port.send(bp.scene_recall(args.scene))
     print(f'scene {args.action} {args.scene} sent')
 
 
 def cmd_surface_health(args):
     """Request and display a health snapshot from the bridge."""
     import time
-    import mido
     from controlmap import bridge_protocol as bp
 
-    port_out = mido.open_output(args.ipad_port)
-    port_in = mido.open_input(args.ipad_port)
-    port_out.send(bp.get_health())
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        for msg in port_in.iter_pending():
-            event = bp.parse_event(msg)
-            if isinstance(event, bp.Health):
-                print(f'msgs_in:    {event.msgs_in}')
-                print(f'msgs_out:   {event.msgs_out}')
-                print(f'routes:     {event.routes}')
-                print(f'scenes:     {event.scene_mask:08b} '
-                      f'(occupied: {[i for i in range(8) if event.has_scene(i)]})')
-                port_out.close()
-                port_in.close()
-                return
-        time.sleep(0.01)
-    port_out.close()
-    port_in.close()
+    with _bridge_ports(args.ipad_port) as (port_out, port_in):
+        port_out.send(bp.get_health())
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            for msg in port_in.iter_pending():
+                event = bp.parse_event(msg)
+                if isinstance(event, bp.Health):
+                    print(f'msgs_in:    {event.msgs_in}')
+                    print(f'msgs_out:   {event.msgs_out}')
+                    print(f'routes:     {event.routes}')
+                    occupied = [i for i in range(8) if event.has_scene(i)]
+                    print(f'scenes:     {event.scene_mask:08b} (occupied: {occupied})')
+                    return
+            time.sleep(0.01)
     print(f'timeout: no HEALTH reply on {args.ipad_port}', file=sys.stderr)
     sys.exit(1)
 

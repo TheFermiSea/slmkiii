@@ -16,8 +16,10 @@ Usage::
 """
 from __future__ import annotations
 
+import os
 import signal
 import time
+import traceback
 
 import mido
 
@@ -26,9 +28,21 @@ from slmkiii.incontrol import (
     LAYOUT_KNOB, COLUMN_CENTER,
     PROP_TEXT, PROP_COLOUR, PROP_VALUE,
 )
-from controlmap.model import MsgType, ResolvedMapping, Binding
+from controlmap.model import MsgType, ResolvedMapping, Binding, ParameterRef
 from controlmap import bridge_protocol
 from controlmap.value_format import format_value
+
+_UNTAGGED_REF = ParameterRef(plugin_id='', param_path='')
+
+
+def _stat_mtime(path: str | None) -> float | None:
+    """Return the mtime of path, or None if the path is missing/unreadable."""
+    if path is None:
+        return None
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
 
 # Derive LED groups from sequential enum values
 _BUTTON_LEDS = [LED(LED.SOFT_BUTTON_1 + i) for i in range(16)]
@@ -88,32 +102,18 @@ class ControlSurface:
         self._feedback_port_name = feedback_port
         self._feedback_in = None
 
-        # Track current values per binding (for screen display)
         self._values: dict[tuple[str, int], int] = {}
-
-        # Track button toggle states
         self._button_states: dict[tuple[str, int], bool] = {}
-
-        # Cached bindings dict, invalidated on page switch
+        # Cached per-current-page bindings; invalidated on page switch
         self._cached_bindings: dict[tuple[str, int], Binding] | None = None
-
-        # Rate limiting for knob screen updates
+        # Rate limit for knob screen updates (SysEx is expensive)
         self._last_screen_update: dict[int, float] = {}
-
-        # Reverse index for feedback: (channel_0idx, cc) -> (group, slot_index)
-        # Built lazily when feedback is enabled.
+        # Reverse index used by feedback echoes to route back to a slot
+        # regardless of which page is active. Built by _build_feedback_index.
         self._feedback_index: dict[tuple[int, int], tuple[str, int]] | None = None
 
-        # Hot reload: remember spec file path and its last known mtime so we
-        # can detect edits and re-push the watch table without restarting.
         self._spec_path = spec_path
-        self._spec_mtime: float = 0.0
-        if spec_path is not None:
-            try:
-                import os
-                self._spec_mtime = os.path.getmtime(spec_path)
-            except OSError:
-                self._spec_mtime = 0.0
+        self._spec_mtime: float | None = _stat_mtime(spec_path)
         self._last_reload_check: float = 0.0
 
     @property
@@ -218,13 +218,10 @@ class ControlSurface:
         if now - last < _SCREEN_UPDATE_INTERVAL:
             return
         self._last_screen_update[knob_index] = now
-        bindings = self._bindings_by_slot()
-        binding = bindings.get(('knobs', knob_index))
-        if binding:
-            display = format_value(value, binding.param)
-        else:
-            display = f'{round(value / 127 * 100)}%'
-        ic.set_text(knob_index, 2, display)
+        binding = self._bindings_by_slot().get(('knobs', knob_index))
+        # format_value's own fallback handles a synthetic ref just as well.
+        ref = binding.param if binding else _UNTAGGED_REF
+        ic.set_text(knob_index, 2, format_value(value, ref))
         ic.set_value(knob_index, 0, value)
 
     def _switch_page(self, ic: InControlConnection, direction: int):
@@ -311,26 +308,28 @@ class ControlSurface:
         if now - self._last_reload_check < 1.0:
             return
         self._last_reload_check = now
-        import os
-        try:
-            mtime = os.path.getmtime(self._spec_path)
-        except OSError:
+        mtime = _stat_mtime(self._spec_path)
+        if mtime is None:
             return
-        if mtime <= self._spec_mtime:
+        if self._spec_mtime is not None and mtime <= self._spec_mtime:
             return
 
         print(f'spec changed ({self._spec_path}); reloading…')
+        # Mark the new mtime *before* compilation so a broken spec doesn't
+        # trigger retry loops on every tick.
+        self._spec_mtime = mtime
         try:
             from controlmap import compile_mapping
             from controlmap.spec_loader import load_spec
             spec = load_spec(self._spec_path)
             resolved = compile_mapping(spec)
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:
             print(f'  reload failed: {e}')
-            self._spec_mtime = mtime  # don't keep retrying on a bad file
+            return
+        except Exception:
+            traceback.print_exc()
             return
 
-        self._spec_mtime = mtime
         self._resolved = resolved
         self._pages = resolved.page_set.pages
         self._current_page = min(self._current_page, max(0, len(self._pages) - 1))
@@ -377,8 +376,7 @@ class ControlSurface:
         if note_chs:
             self._midi_out.send(bridge_protocol.watch_notes(note_chs))
 
-        # Push any per-page routes declared on the spec
-        spec_routes = getattr(self._resolved.spec, 'routes', None) or []
+        spec_routes = self._resolved.spec.routes
         if spec_routes:
             routes = [bridge_protocol.Route(
                 page=r.page,

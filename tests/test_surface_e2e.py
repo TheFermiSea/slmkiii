@@ -77,37 +77,43 @@ class TestE2EPipeline(unittest.TestCase):
 
 
 class TestProtocolBridgeAlignment(unittest.TestCase):
-    """Ensure the Mozaic script and Python protocol agree on opcodes."""
+    """Ensure the Mozaic script and Python protocol agree on opcodes.
+
+    Parses the .moz source for `name = 0xNN` assignments and verifies the
+    extracted values match the Python constants by name. Whitespace-insensitive
+    so formatting edits to the Mozaic file don't break CI.
+    """
 
     def test_opcode_constants_match(self):
+        import re
         from controlmap import bridge_protocol as bp
 
         bridge_src = (Path(__file__).parent.parent / 'controlmap' / 'mozaic'
                       / 'slmk_bridge.moz').read_text()
 
-        # Map of (Python constant, expected Mozaic line fragment)
-        cases = [
-            (bp.CMD_HELLO,         'cmd_hello       = 0x00'),
-            (bp.CMD_GET_VALUES,    'cmd_get_values  = 0x01'),
-            (bp.CMD_WATCH_CC,      'cmd_watch_cc    = 0x02'),
-            (bp.CMD_WATCH_NOTES,   'cmd_watch_notes = 0x03'),
-            (bp.CMD_CLEAR_WATCHES, 'cmd_clear       = 0x04'),
-            (bp.CMD_PAGE,          'cmd_page        = 0x05'),
-            (bp.CMD_GET_HEALTH,    'cmd_get_health  = 0x06'),
-            (bp.CMD_ROUTE_SET,     'cmd_route_set   = 0x07'),
-            (bp.CMD_ROUTE_CLEAR,   'cmd_route_clear = 0x08'),
-            (bp.CMD_SCENE_SAVE,    'cmd_scene_save  = 0x09'),
-            (bp.CMD_SCENE_RECALL,  'cmd_scene_recall = 0x0A'),
-            (bp.RSP_HELLO_ACK,     'rsp_hello_ack = 0x10'),
-            (bp.RSP_CC_VALUE,      'rsp_cc_value  = 0x11'),
-            (bp.RSP_NOTE_ON,       'rsp_note_on   = 0x12'),
-            (bp.RSP_NOTE_OFF,      'rsp_note_off  = 0x13'),
-            (bp.RSP_HEALTH,        'rsp_health    = 0x14'),
-            (bp.RSP_PAGE_ACK,      'rsp_page_ack  = 0x15'),
+        moz_constants: dict[str, int] = {}
+        for name, hex_val in re.findall(
+                r'^\s*(cmd_\w+|rsp_\w+)\s*=\s*0x([0-9A-Fa-f]+)',
+                bridge_src, re.MULTILINE):
+            moz_constants[name.lower()] = int(hex_val, 16)
+
+        # Map Python constant names (CMD_FOO / RSP_FOO) to expected Mozaic keys.
+        expected = {name.lower(): getattr(bp, name)
+                    for name in dir(bp)
+                    if name.startswith(('CMD_', 'RSP_'))}
+        # Mozaic uses cmd_scene_save / cmd_scene_recall exactly like Python
+        # (with underscore between SCENE and SAVE/RECALL).
+
+        missing = set(expected) - set(moz_constants)
+        self.assertFalse(missing,
+                         f'Mozaic script missing constants: {sorted(missing)}')
+
+        mismatched = [
+            (k, expected[k], moz_constants[k])
+            for k in expected if expected[k] != moz_constants[k]
         ]
-        for _expected_value, fragment in cases:
-            self.assertIn(fragment, bridge_src,
-                          f'bridge script missing or has divergent line: {fragment!r}')
+        self.assertFalse(mismatched,
+                         f'opcode value mismatches: {mismatched}')
 
 
 if __name__ == '__main__':

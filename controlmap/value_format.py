@@ -37,25 +37,20 @@ def format_value(raw: int, ref: ParameterRef, max_chars: int = 9) -> str:
     screen text width). Uses discrete_labels if present, otherwise applies
     the taper + unit, otherwise falls back to a percentage.
     """
-    # Discrete: bucket the raw 0-127 into the labels list
     if ref.discrete_labels:
         n = len(ref.discrete_labels)
         idx = min(n - 1, raw * n // 128)
         return ref.discrete_labels[idx][:max_chars]
 
-    # Continuous with metadata: convert and unit-format
     if ref.unit or ref.value_min != 0.0 or ref.value_max != 1.0:
         real = raw_to_real(raw, ref)
         text = _format_number(real, ref.unit)
         if len(text) <= max_chars:
             return text
-        # Try without decimal for tightness
-        text = f'{int(round(real))}{ref.unit}'
-        return text[:max_chars]
+        return f'{int(round(real))}{ref.unit}'[:max_chars]
 
-    # Bare value: percentage display (matches existing surface behaviour)
-    pct = round(raw / 127 * 100)
-    return f'{pct}%'
+    # Fallback for untagged params: percent of range.
+    return f'{round(raw / 127 * 100)}%'
 
 
 def _format_number(value: float, unit: str) -> str:

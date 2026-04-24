@@ -37,6 +37,10 @@
 
     // Watch set: 16 channels × 128 CCs flat array. 1 = watched.
     FillArray watch_mask, 0, 2048
+    // Sparse mirror of watch_mask: linear list of packed (ch<<7|cc) indices
+    // so GET_VALUES only iterates watched cells, not all 2048.
+    FillArray watch_list, 0, 256
+    watch_list_count = 0
     // Per-channel note echo flags
     FillArray note_watch, 0, 16
     // Value cache: -1 means "no value seen yet" (so first arrival always emits)
@@ -72,7 +76,7 @@
     cmd_get_values  = 0x01
     cmd_watch_cc    = 0x02
     cmd_watch_notes = 0x03
-    cmd_clear       = 0x04
+    cmd_clear_watches       = 0x04
     cmd_page        = 0x05
     cmd_get_health  = 0x06
     cmd_route_set   = 0x07
@@ -164,7 +168,7 @@
         Call @HandleWatchCC
     elseif cmd = cmd_watch_notes
         Call @HandleWatchNotes
-    elseif cmd = cmd_clear
+    elseif cmd = cmd_clear_watches
         Call @HandleClear
     elseif cmd = cmd_page
         Call @HandlePage
@@ -224,22 +228,18 @@
 @End
 
 @ReplayValues
-    for ch = 0 to 15
-        for cc = 0 to 127
-            idx = ch * 128 + cc
-            if watch_mask[idx] = 1
-                if cc_values[idx] >= 0
-                    sysex_msg[0] = sx_start
-                    sysex_msg[1] = sx_tag
-                    sysex_msg[2] = rsp_cc_value
-                    sysex_msg[3] = ch
-                    sysex_msg[4] = cc
-                    sysex_msg[5] = cc_values[idx]
-                    sysex_msg[6] = sx_end
-                    SendSysex sysex_msg, 7
-                endif
-            endif
-        endfor
+    for k = 0 to watch_list_count - 1
+        idx = watch_list[k]
+        if cc_values[idx] >= 0
+            sysex_msg[0] = sx_start
+            sysex_msg[1] = sx_tag
+            sysex_msg[2] = rsp_cc_value
+            sysex_msg[3] = idx / 128
+            sysex_msg[4] = idx % 128
+            sysex_msg[5] = cc_values[idx]
+            sysex_msg[6] = sx_end
+            SendSysex sysex_msg, 7
+        endif
     endfor
 @End
 
@@ -253,8 +253,14 @@
         if ch < 16
             if cc < 128
                 idx = ch * 128 + cc
-                watch_mask[idx] = 1
-                added = added + 1
+                if watch_mask[idx] = 0
+                    watch_mask[idx] = 1
+                    if watch_list_count < 256
+                        watch_list[watch_list_count] = idx
+                        watch_list_count = watch_list_count + 1
+                    endif
+                    added = added + 1
+                endif
             endif
         endif
         i = i + 2
@@ -279,6 +285,8 @@
 
 @HandleClear
     FillArray watch_mask, 0, 2048
+    FillArray watch_list, 0, 256
+    watch_list_count = 0
     FillArray note_watch, 0, 16
     FillArray cc_values, -1, 2048
     Log {CLEAR_WATCHES}
