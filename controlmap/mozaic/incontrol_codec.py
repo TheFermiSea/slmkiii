@@ -71,3 +71,33 @@ def set_value_template(column: int, field_index: int) -> tuple[tuple[int, ...], 
     msg = list(set_value(column, field_index, 0))
     # The value byte is the second-to-last (the last is 0xF7).
     return tuple(msg), len(msg) - 2
+
+
+def notification(line1: str, line2: str = '') -> tuple[int, ...]:
+    """Center-screen notification. line1/line2 are clamped to 18 ASCII chars."""
+    l1 = line1.encode('ascii', errors='replace')[:18]
+    l2 = line2.encode('ascii', errors='replace')[:18]
+    return (INCONTROL_HEADER
+            + (CMD_SET_NOTIFICATION,)
+            + tuple(l1) + (0x00,)
+            + tuple(l2) + (0x00, 0xF7))
+
+
+# LED index for a button slot 0..15 on the SL MkIII (matches LED enum values
+# for SOFT_BUTTON_1..SOFT_BUTTON_16 in slmkiii/incontrol.py).
+def button_led_index(slot_index: int) -> int:
+    return 0x04 + slot_index  # SOFT_BUTTON_1 = 0x04
+
+
+def pad_led_index(slot_index: int) -> int:
+    return 0x26 + slot_index  # PAD_1 = 0x26
+
+
+def fader_led_index(slot_index: int) -> int:
+    return 0x36 + slot_index  # FADER_1 = 0x36
+
+
+# InControl input CC indices on channel 16 (Mozaic 0-indexed = 15).
+INCONTROL_CHANNEL_0IDX = 15
+CC_SCREEN_UP = 0x51
+CC_SCREEN_DOWN = 0x52
