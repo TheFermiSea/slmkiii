@@ -79,13 +79,18 @@ def cmd_ports(args):
 
 
 def cmd_surface_compile(args):
-    """Compile a YAML/JSON spec into .syx + .aum_midimap + .mozaic artifacts."""
+    """Compile a YAML/JSON spec into .syx + .aum_midimap + .mozaic artifacts.
+
+    Emits a per-spec Mozaic script (`<name>.mozaic`) by default — this is
+    the Mac-free runtime: SL MkIII -> AUM -> Mozaic -> plugin, with InControl
+    screen feedback baked in. Pass --diagnostic to ALSO emit the generic
+    SLMK-BRIDGE.mozaic used by the optional Mac daemon."""
     from pathlib import Path
     from controlmap import compile_mapping
     from controlmap.spec_loader import load_spec
     from controlmap.emitters.slmkiii_emitter import SlMkIIIEmitter
     from controlmap.emitters.aum_emitter import AumEmitter
-    from controlmap.mozaic import pack_moz_file
+    from controlmap.mozaic import pack_moz_file, generate, build_mozaic
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -105,10 +110,19 @@ def cmd_surface_compile(args):
     for p in map_paths:
         print(f"  → {p}")
 
-    bridge_src = Path(__file__).parent.parent / 'controlmap' / 'mozaic' / 'slmk_bridge.moz'
-    bridge_out = out_dir / 'SLMK-BRIDGE.mozaic'
-    pack_moz_file(bridge_src, bridge_out, 'SLMK-BRIDGE')
-    print(f"  → {bridge_out}")
+    # Per-spec runtime Mozaic (the production path).
+    moz_source = generate(resolved)
+    moz_src_path = out_dir / f'{spec.name}.moz'
+    moz_src_path.write_text(moz_source, encoding='utf-8')
+    moz_out = out_dir / f'{spec.name}.mozaic'
+    moz_out.write_bytes(build_mozaic(moz_source, spec.name.upper()[:18]))
+    print(f"  → {moz_out}")
+
+    if getattr(args, 'diagnostic', False):
+        bridge_src = Path(__file__).parent.parent / 'controlmap' / 'mozaic' / 'slmk_bridge.moz'
+        bridge_out = out_dir / 'SLMK-BRIDGE.mozaic'
+        pack_moz_file(bridge_src, bridge_out, 'SLMK-BRIDGE')
+        print(f"  → {bridge_out}  (diagnostic / Mac daemon)")
 
 
 def cmd_surface_push(args):
@@ -148,7 +162,14 @@ def cmd_surface_push(args):
         # Channel-level mappings live in /Documents/MIDI Mappings/Channel/
         pairs = [(p, f'/Documents/MIDI Mappings/Channel/{p.name}')
                  for p in map_paths]
-        pairs.append((mozaic_path, f'/Documents/{mozaic_path.name}'))
+        # The per-spec Mozaic is the production runtime; the generic SLMK-BRIDGE
+        # only exists when --diagnostic was passed to compile.
+        per_spec_mozaic = out_dir / f'{spec.name}.mozaic'
+        if per_spec_mozaic.exists():
+            pairs.append((per_spec_mozaic,
+                          f'/Documents/{per_spec_mozaic.name}'))
+        if mozaic_path.exists():
+            pairs.append((mozaic_path, f'/Documents/{mozaic_path.name}'))
         try:
             written = push_files(pairs, bundle_id=args.aum_bundle)
             for w in written:
@@ -312,6 +333,9 @@ def _add_surface_subparsers(subparsers):
     p_compile.add_argument("spec", help="Path to YAML/JSON mapping spec")
     p_compile.add_argument(
         "--out-dir", default="build", help="Output directory (default: build/)")
+    p_compile.add_argument(
+        "--diagnostic", action="store_true",
+        help="Also emit the generic SLMK-BRIDGE.mozaic for Mac-daemon use")
     p_compile.set_defaults(func=cmd_surface_compile)
 
     p_push = surface_subs.add_parser(
