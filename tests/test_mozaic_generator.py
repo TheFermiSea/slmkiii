@@ -49,7 +49,7 @@ class TestGenerate(unittest.TestCase):
         self.assertIn('@OnLoad', src)
         self.assertIn('@OnMidiCC', src)
         self.assertIn('SendMIDICC MIDIChannel, MIDIByte2, MIDIByte3', src)
-        self.assertIn('ccmap', src)
+        self.assertIn('@SetValueCol0', src)
         self.assertIn('Animoog Z', src)  # plugin name in header comment
 
     def test_generated_script_packs_into_mozaic(self):
@@ -59,18 +59,16 @@ class TestGenerate(unittest.TestCase):
         self.assertEqual(decoded['FILENAME'], 'GEN-TEST')
         code = decoded['CODE']['NS.data'].decode('utf-8')
         self.assertIn('@OnLoad', code)
-        self.assertIn('ccmap', code)
+        self.assertIn('@SetValueCol0', code)
 
-    def test_generates_one_lookup_per_knob_binding(self):
-        # animoog_z mapping puts continuous params on knobs/faders. The first
-        # 8 knob slots get screen columns 0..7 if there are enough params.
+    def test_dispatch_chain_per_knob_binding(self):
+        # Each knob binding becomes a (channel, cc) -> @SetValueColN branch
+        # in @OnMidiCC. No array indirection, no FillArray of ccmap.
         src = generate(_resolved())
-        # Each knob_screen binding emits a `ccmap[N] = M` line
-        lines = [ln for ln in src.splitlines()
-                 if ln.strip().startswith('ccmap[')
-                 and '= -1' not in ln]
-        self.assertGreater(len(lines), 0)
-        self.assertLessEqual(len(lines), 8)
+        self.assertNotIn('FillArray ccmap', src)
+        self.assertNotIn('ccmap[', src)
+        # At least one column dispatch
+        self.assertIn('Call @SetValueCol0', src)
 
     def test_emits_set_layout_knob(self):
         src = generate(_resolved())
@@ -79,10 +77,11 @@ class TestGenerate(unittest.TestCase):
         # `buf[7] = 1` then `buf[8] = 1`.
         self.assertIn('buf[7] = 1\n    buf[8] = 1', src)
 
-    def test_emits_emit_set_value_with_runtime_patch(self):
+    def test_emits_per_column_setter_with_runtime_patch(self):
+        # Per-column @SetValueColN replaces the old shared @EmitSetValue.
+        # Each function patches MIDIByte3 into the value byte.
         src = generate(_resolved())
-        self.assertIn('@EmitSetValue', src)
-        self.assertIn('val_buf[8] = col', src)
+        self.assertIn('@SetValueCol0', src)
         self.assertIn('val_buf[11] = MIDIByte3', src)
 
     def test_empty_mapping_raises(self):
@@ -109,11 +108,12 @@ class TestPhase2Features(unittest.TestCase):
         self.assertIn(f'MIDIByte2 = {ic.CC_SCREEN_UP}', src)
         self.assertIn(f'MIDIByte2 = {ic.CC_SCREEN_DOWN}', src)
 
-    def test_apply_page_rebuilds_lookup(self):
+    def test_apply_page_dispatches_to_render(self):
         src = generate(_resolved())
         self.assertIn('@ApplyPage', src)
-        # Lookup table is wiped and per-page entries rewritten
-        self.assertIn('FillArray ccmap, -1, 2048', src)
+        # @ApplyPage now just dispatches to the right @RenderPageN — no
+        # array rebuild needed (runtime CC dispatch is in @OnMidiCC).
+        self.assertIn('Call @RenderPage0', src)
 
     def test_render_page_for_each_page(self):
         # Construct a multi-page mapping by hand since the paginator currently
@@ -187,11 +187,13 @@ class TestPhase2Features(unittest.TestCase):
         # seeing that buf[8] = 8 appears (column = CENTER_COLUMN = 8).
         self.assertIn('buf[8] = 8', src)
 
-    def test_emit_set_value_unchanged(self):
-        # The runtime set_value patch from Phase 1 must still be present.
+    def test_one_set_value_function_per_column(self):
+        # The hot-path set_value functions (one per column 0..7) replace the
+        # earlier shared @EmitSetValue + ccmap lookup. Each column has its
+        # column index baked into the SysEx and only patches MIDIByte3.
         src = generate(_resolved())
-        self.assertIn('@EmitSetValue', src)
-        self.assertIn('val_buf[8] = col', src)
+        for col in range(8):
+            self.assertIn(f'@SetValueCol{col}', src)
         self.assertIn('val_buf[11] = MIDIByte3', src)
 
 

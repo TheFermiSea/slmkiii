@@ -136,27 +136,10 @@ def _emit_render_page(out: io.StringIO, page_idx: int, page: Page,
 
 
 def _emit_apply_page(out: io.StringIO, pages: list[Page]) -> None:
-    """Emit @ApplyPage which rebuilds the ccmap lookup table for the
-    current page and dispatches to the right @RenderPageN."""
-    out.write(dedent("""\
-        @ApplyPage
-            // Rebuild ccmap table for active page
-            FillArray ccmap, -1, 2048
-        """))
-    for page_idx, page in enumerate(pages):
-        knobs, _b, _p = _classify_bindings(page)
-        if not knobs:
-            continue
-        out.write(f'    if active_page = {page_idx}\n')
-        for col in sorted(knobs.keys()):
-            binding = knobs[col]
-            ch = binding.midi_channel - 1  # type: ignore[attr-defined]
-            cc = binding.midi_cc            # type: ignore[attr-defined]
-            out.write(f'        ccmap[{ch * 128 + cc}] = {col}\n')
-        out.write('    endif\n')
-    out.write('\n')
-
-    # Dispatch to the right render function
+    """Emit @ApplyPage — dispatches to the right @RenderPageN for the
+    current page. Runtime CC dispatch lives in @OnMidiCC as explicit
+    if/elseif branches; no lookup table to rebuild here."""
+    out.write('@ApplyPage\n')
     for page_idx in range(len(pages)):
         kw = 'if' if page_idx == 0 else 'elseif'
         out.write(f'    {kw} active_page = {page_idx}\n')
@@ -191,25 +174,43 @@ def _emit_pad_event_handlers(out: io.StringIO, pages: list[Page]) -> None:
                 SendMIDINoteOff MIDIChannel, MIDIByte2, MIDIByte3
             endif
         """))
-    if note_to_pad:
-        out.write('    note_idx = MIDIChannel * 128 + MIDIByte2\n')
-        for (ch, note), pad_idx in sorted(note_to_pad.items()):
-            led = ic.pad_led_index(pad_idx)
-            color_on = ic.COLOR_WHITE
-            color_off = ic.COLOR_PURPLE
-            packed = ch * 128 + note
-            out.write(f'    if note_idx = {packed}\n')
-            out.write(f'        if MIDICommand = 0x90\n')
-            out.write(f'            SendMIDICC 15, {led}, {color_on}\n')
-            out.write(f'        else\n')
-            out.write(f'            SendMIDICC 15, {led}, {color_off}\n')
-            out.write(f'        endif\n')
-            out.write(f'    endif\n')
+    for (ch, note), pad_idx in sorted(note_to_pad.items()):
+        led = ic.pad_led_index(pad_idx)
+        color_on = ic.COLOR_WHITE
+        color_off = ic.COLOR_PURPLE
+        out.write(f'    if MIDIChannel = {ch}\n')
+        out.write(f'        if MIDIByte2 = {note}\n')
+        out.write(f'            if MIDICommand = 0x90\n')
+        out.write(f'                SendMIDICC 15, {led}, {color_on}\n')
+        out.write(f'            else\n')
+        out.write(f'                SendMIDICC 15, {led}, {color_off}\n')
+        out.write(f'            endif\n')
+        out.write(f'        endif\n')
+        out.write(f'    endif\n')
+    out.write('@End\n\n')
+
+
+def _emit_set_value_function(out: io.StringIO, col: int) -> None:
+    """Emit @SetValueColN — sends an InControl set_value SysEx for column N
+    using MIDIByte3 as the value. No array indexing in the hot path."""
+    val_template = ic.set_value(col, 0, 0)
+    val_pos = len(val_template) - 2
+    out.write(f'@SetValueCol{col}\n')
+    for i, b in enumerate(val_template):
+        out.write(f'    val_buf[{i}] = {b}\n')
+    out.write(f'    val_buf[{val_pos}] = MIDIByte3\n')
+    out.write(f'    SendSysex val_buf, {len(val_template)}\n')
     out.write('@End\n\n')
 
 
 def generate(resolved: ResolvedMapping) -> str:
-    """Build the .moz script source for all pages of a ResolvedMapping."""
+    """Build the .moz script source for all pages of a ResolvedMapping.
+
+    Hot path is intentionally array-free — Mozaic's parser proved unhappy
+    with `var = array[expr]` style indirection on certain builds. Instead
+    we emit one @SetValueColN function per column and an explicit
+    if/elseif dispatch keyed on (active_page, channel, cc).
+    """
     if not resolved.page_set.pages:
         raise ValueError('cannot generate Mozaic script: no pages in mapping')
 
@@ -236,9 +237,6 @@ def generate(resolved: ResolvedMapping) -> str:
             active_page = 0
             page_count = {len(pages)}
 
-            // ccmap lookup (rebuilt on every page change)
-            FillArray ccmap, -1, 2048
-
             Call @ApplyPage
         @End
 
@@ -247,10 +245,14 @@ def generate(resolved: ResolvedMapping) -> str:
     _emit_apply_page(out, pages)
 
     # Render functions, one per page
-    for idx, page in enumerate(pages):
-        _emit_render_page(out, idx, page, len(pages))
+    for page_idx, page in enumerate(pages):
+        _emit_render_page(out, page_idx, page, len(pages))
 
-    # @OnMidiCC: parameter forwarding + display update + page-nav
+    # One @SetValueColN per column, no shared template state
+    for col in range(KNOB_SCREEN_COLUMNS):
+        _emit_set_value_function(out, col)
+
+    # @OnMidiCC: page-nav + plugin pass-through + per-(page, ch, cc) dispatch
     out.write(dedent(f"""\
         @OnMidiCC
             // Page navigation: SL MkIII InControl Page buttons (Ch16, CC 0x51/0x52)
@@ -270,15 +272,26 @@ def generate(resolved: ResolvedMapping) -> str:
             // Parameter pass-through to plugin chain
             SendMIDICC MIDIChannel, MIDIByte2, MIDIByte3
 
-            // If this CC is currently bound to a top-row screen, update its value
-            idx = MIDIChannel * 128 + MIDIByte2
-            col = ccmap[idx]
-            if col >= 0
-                Call @EmitSetValue
-            endif
-        @End
-
         """))
+
+    # Explicit dispatch per page/channel/cc - no array indexing.
+    for page_idx, page in enumerate(pages):
+        knobs, _b, _p = _classify_bindings(page)
+        if not knobs:
+            continue
+        out.write(f'    if active_page = {page_idx}\n')
+        for col in sorted(knobs.keys()):
+            binding = knobs[col]
+            ch = binding.midi_channel - 1   # type: ignore[attr-defined]
+            cc = binding.midi_cc             # type: ignore[attr-defined]
+            out.write(f'        if MIDIChannel = {ch}\n')
+            out.write(f'            if MIDIByte2 = {cc}\n')
+            out.write(f'                Call @SetValueCol{col}\n')
+            out.write(f'            endif\n')
+            out.write(f'        endif\n')
+        out.write('    endif\n')
+
+    out.write('@End\n\n')
 
     # @PageUp / @PageDown
     out.write(dedent("""\
@@ -301,17 +314,6 @@ def generate(resolved: ResolvedMapping) -> str:
         @End
 
         """))
-
-    # @EmitSetValue: patch col + value into static set_value template
-    val_template, val_pos = ic.set_value_template(0, 0)
-    col_pos = len(ic.INCONTROL_HEADER) + 1
-    out.write('@EmitSetValue\n')
-    for i, b in enumerate(val_template):
-        out.write(f'    val_buf[{i}] = {b}\n')
-    out.write(f'    val_buf[{col_pos}] = col\n')
-    out.write(f'    val_buf[{val_pos}] = MIDIByte3\n')
-    out.write(f'    SendSysex val_buf, {len(val_template)}\n')
-    out.write('@End\n\n')
 
     # Note handler with pad LED feedback
     _emit_pad_event_handlers(out, pages)
