@@ -49,7 +49,7 @@ class TestGenerate(unittest.TestCase):
         self.assertIn('@OnLoad', src)
         self.assertIn('@OnMidiCC', src)
         self.assertIn('SendMIDICC MIDIChannel, MIDIByte2, MIDIByte3', src)
-        self.assertIn('cc_to_col', src)
+        self.assertIn('ccmap', src)
         self.assertIn('Animoog Z', src)  # plugin name in header comment
 
     def test_generated_script_packs_into_mozaic(self):
@@ -59,15 +59,15 @@ class TestGenerate(unittest.TestCase):
         self.assertEqual(decoded['FILENAME'], 'GEN-TEST')
         code = decoded['CODE']['NS.data'].decode('utf-8')
         self.assertIn('@OnLoad', code)
-        self.assertIn('cc_to_col', code)
+        self.assertIn('ccmap', code)
 
     def test_generates_one_lookup_per_knob_binding(self):
         # animoog_z mapping puts continuous params on knobs/faders. The first
         # 8 knob slots get screen columns 0..7 if there are enough params.
         src = generate(_resolved())
-        # Each knob_screen binding emits a `cc_to_col[N] = M` line
+        # Each knob_screen binding emits a `ccmap[N] = M` line
         lines = [ln for ln in src.splitlines()
-                 if ln.strip().startswith('cc_to_col[')
+                 if ln.strip().startswith('ccmap[')
                  and '= -1' not in ln]
         self.assertGreater(len(lines), 0)
         self.assertLessEqual(len(lines), 8)
@@ -113,7 +113,7 @@ class TestPhase2Features(unittest.TestCase):
         src = generate(_resolved())
         self.assertIn('@ApplyPage', src)
         # Lookup table is wiped and per-page entries rewritten
-        self.assertIn('FillArray cc_to_col, -1, 2048', src)
+        self.assertIn('FillArray ccmap, -1, 2048', src)
 
     def test_render_page_for_each_page(self):
         # Construct a multi-page mapping by hand since the paginator currently

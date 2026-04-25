@@ -11,7 +11,7 @@ loaded as a Mozaic AUv3 inside AUM, sits between the SL MkIII USB MIDI ports
     incoming events (pad note-on glows, button press toggles).
   - Listens for the SL MkIII Page Up/Down buttons (InControl CC 0x51/0x52
     on channel 16) and switches active page — re-rendering screens and
-    re-establishing the cc_to_col lookup for the new page.
+    re-establishing the ccmap lookup for the new page.
 
 Every label, color, CC slot, and screen update is baked at compile time.
 Change the spec, recompile, re-push the .mozaic to AUM, re-tap to install.
@@ -136,12 +136,12 @@ def _emit_render_page(out: io.StringIO, page_idx: int, page: Page,
 
 
 def _emit_apply_page(out: io.StringIO, pages: list[Page]) -> None:
-    """Emit @ApplyPage which rebuilds the cc_to_col lookup table for the
+    """Emit @ApplyPage which rebuilds the ccmap lookup table for the
     current page and dispatches to the right @RenderPageN."""
     out.write(dedent("""\
         @ApplyPage
-            // Rebuild cc_to_col table for active page
-            FillArray cc_to_col, -1, 2048
+            // Rebuild ccmap table for active page
+            FillArray ccmap, -1, 2048
         """))
     for page_idx, page in enumerate(pages):
         knobs, _b, _p = _classify_bindings(page)
@@ -152,7 +152,7 @@ def _emit_apply_page(out: io.StringIO, pages: list[Page]) -> None:
             binding = knobs[col]
             ch = binding.midi_channel - 1  # type: ignore[attr-defined]
             cc = binding.midi_cc            # type: ignore[attr-defined]
-            out.write(f'        cc_to_col[{ch * 128 + cc}] = {col}\n')
+            out.write(f'        ccmap[{ch * 128 + cc}] = {col}\n')
         out.write('    endif\n')
     out.write('\n')
 
@@ -236,8 +236,8 @@ def generate(resolved: ResolvedMapping) -> str:
             active_page = 0
             page_count = {len(pages)}
 
-            // cc_to_col lookup (rebuilt on every page change)
-            FillArray cc_to_col, -1, 2048
+            // ccmap lookup (rebuilt on every page change)
+            FillArray ccmap, -1, 2048
 
             Call @ApplyPage
         @End
@@ -272,7 +272,7 @@ def generate(resolved: ResolvedMapping) -> str:
 
             // If this CC is currently bound to a top-row screen, update its value
             idx = MIDIChannel * 128 + MIDIByte2
-            col = cc_to_col[idx]
+            col = ccmap[idx]
             if col >= 0
                 Call @EmitSetValue
             endif
