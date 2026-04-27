@@ -13,35 +13,14 @@ from __future__ import annotations
 
 import sys
 import time
-from dataclasses import dataclass
 
 import mido
+
+from _midi_fmt import fmt
 
 
 SL_INCONTROL_IN = "Novation SL MkIII SL MkIII InControl"
 IPAD_PORT = "iPad"
-
-
-@dataclass
-class Tagged:
-    src: str
-    msg: mido.Message
-    t: float
-
-
-def fmt(msg: mido.Message) -> str:
-    if msg.type == "control_change":
-        return f"CC ch{msg.channel + 1:>2} cc={msg.control:>3} val={msg.value:>3}"
-    if msg.type == "note_on":
-        return f"NoteOn ch{msg.channel + 1:>2} note={msg.note:>3} vel={msg.velocity:>3}"
-    if msg.type == "note_off":
-        return f"NoteOff ch{msg.channel + 1:>2} note={msg.note:>3} vel={msg.velocity:>3}"
-    if msg.type == "sysex":
-        body = " ".join(f"{b:02X}" for b in msg.data)
-        return f"SysEx [{len(msg.data)}B] {body}"
-    if msg.type == "pitchwheel":
-        return f"PitchBend ch{msg.channel + 1:>2} val={msg.pitch}"
-    return msg.type + " " + str(msg)
 
 
 def main() -> None:

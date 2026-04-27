@@ -50,28 +50,6 @@ class TestPageConfig(unittest.TestCase):
             self.assertLessEqual(len(p.faders), 8, f'{p.name} too many faders')
 
 
-class TestKnobDelta(unittest.TestCase):
-    def test_positive_delta(self):
-        self.assertEqual(C.integrate_delta(64, 1), 65)
-        self.assertEqual(C.integrate_delta(64, 5), 69)
-
-    def test_negative_delta(self):
-        # raw 127 = -1, raw 120 = -8
-        self.assertEqual(C.integrate_delta(64, 127), 63)
-        self.assertEqual(C.integrate_delta(64, 120), 56)
-
-    def test_clamp_low(self):
-        self.assertEqual(C.integrate_delta(2, 120), 0)
-        self.assertEqual(C.integrate_delta(0, 127), 0)
-
-    def test_clamp_high(self):
-        self.assertEqual(C.integrate_delta(125, 5), 127)
-        self.assertEqual(C.integrate_delta(127, 1), 127)
-
-    def test_zero_delta(self):
-        self.assertEqual(C.integrate_delta(64, 0), 64)
-
-
 class TestValueToColor(unittest.TestCase):
     def test_thresholds(self):
         self.assertEqual(C._value_to_color(0), C.COL_OFF)

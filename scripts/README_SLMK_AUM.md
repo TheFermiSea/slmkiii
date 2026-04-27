@@ -77,13 +77,13 @@ That's it. Wiggle the SL — knobs/faders/buttons/pads should drive the matching
 4. Re-run `generate_aum_mappings.py` and `push_to_aum.py`
 5. Inside AUM, reload the mapping on the relevant plugin instance
 
-## Known limitations (to fix later)
+## Known limitations
 
-- **Octave for drum trigger pads** — pads currently send notes 36-51 on ch10. Battalion's drum-trigger note range may be different per kit; verify and adjust `BATTALION_DRUM_NOTE_BASE` and `BATTALION_DRUM_CHANNEL` if needed.
-- **No bidirectional feedback** — when you tweak a parameter inside the AUM plugin GUI directly (touchscreen), the Mac controller's cached value won't update, so the next knob turn jumps from the cached value. AUM blocks parameter feedback by design (loop prevention). Workaround later: monitor AUM's MIDI matrix for the plugin's own emitted CCs and back-fill the cache.
-- **Drambo AU identifier** unverified — Drambo mappings work because the CCs are MIDI-Learned inside Drambo, not loaded from an .aum_midimap.
-- **Screen value icons** rendered correctly per `set_value` but knob *names* truncate at 9 chars (SL display limit).
-- **Mozaic transcription** not started — current implementation is Mac-only. The `qk2sl.moz` had a SysEx layout bug (text bytes started at `sx[12]` instead of `sx[11]`) that is the root cause of the previous "screens never updated" issue. When ready to transcribe, use the Python InControl byte sequences as ground truth.
+- **Drum-trigger note range** — pads send notes 36-51 ch10. If your Battalion kit uses a different mapping, edit `BATTALION_DRUM_NOTE_BASE` / `BATTALION_DRUM_CHANNEL`.
+- **No bidirectional feedback from AUM** — AUM blocks parameter feedback to prevent loops, so tweaking a plugin parameter from the iPad touchscreen won't update the controller's cached value. The next knob turn will jump from the cached value.
+- **Drambo AU identifier** unverified — Drambo macros work because CCs are MIDI-Learned inside Drambo, not loaded from `.aum_midimap`.
+- **Knob labels** truncate at 9 chars (SL screen width).
+- **Mozaic transcription** not started — current implementation is Mac-only. When ready to transcribe, use the Python InControl byte sequences as ground truth.
 
 ## Diagnostic / debugging tools
 
