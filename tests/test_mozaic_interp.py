@@ -7,6 +7,7 @@ from pathlib import Path
 
 from slmkiii.mozaic import MozaicInterp, parse
 from slmkiii.mozaic.errors import MozaicError
+from slmkiii.mozaic.snapshot import MidiEvent, SysexEvent, Trace
 
 QK_UTILS = Path("/Users/briansquires/code/quantumkomposer/qk_utils")
 
@@ -266,6 +267,80 @@ class TestMagicVars(unittest.TestCase):
         interp.load(src)
         interp.send_sysex(b"\xf0\x12\x34\xf7")
         self.assertEqual(interp.log, ["n:2 b0:18 b1:52"])
+
+
+class TestTimers(unittest.TestCase):
+    def test_timer_fires_on_advance(self) -> None:
+        src = (
+            "@OnLoad\n"
+            "  SetTimerInterval 100\n"
+            "  StartTimer\n"
+            "@End\n"
+            "@OnTimer\n"
+            "  ticks = ticks + 1\n"
+            "@End\n"
+        )
+        interp = MozaicInterp()
+        interp.load(src)
+        interp.advance_timer(50)
+        self.assertEqual(interp._get_scalar("ticks"), 0)
+        interp.advance_timer(60)
+        self.assertEqual(interp._get_scalar("ticks"), 1)
+        interp.advance_timer(250)
+        self.assertEqual(interp._get_scalar("ticks"), 3)
+
+    def test_stop_timer_halts(self) -> None:
+        src = (
+            "@OnLoad\n"
+            "  SetTimerInterval 50\n"
+            "  StartTimer\n"
+            "@End\n"
+            "@OnTimer\n"
+            "  ticks = ticks + 1\n"
+            "  StopTimer\n"
+            "@End\n"
+        )
+        interp = MozaicInterp()
+        interp.load(src)
+        interp.advance_timer(500)
+        self.assertEqual(interp._get_scalar("ticks"), 1)
+
+
+class TestSysexReceive(unittest.TestCase):
+    def test_receive_sysex_unpacks_payload(self) -> None:
+        src = (
+            "@OnSysex\n"
+            "  ReceiveSysex msg\n"
+            "  Log {b0:}, msg[0], { b1:}, msg[1], { b2:}, msg[2]\n"
+            "@End\n"
+        )
+        interp = MozaicInterp()
+        interp.load(src)
+        interp.send_sysex(b"\xf0\x10\x20\x30\xf7")
+        self.assertEqual(interp.log, ["b0:16 b1:32 b2:48"])
+        # Array contents should also be populated.
+        self.assertEqual(interp.vars["msg"][:3], [0x10, 0x20, 0x30])
+
+
+class TestTraceSnapshot(unittest.TestCase):
+    def test_trace_round_trip(self) -> None:
+        src = (
+            "@OnLoad\n"
+            "  Log {hello}\n"
+            "  SendMIDICC 0, 7, 64\n"
+            "  buf = [0xF0, 0x12, 0xF7]\n"
+            "  SendSysex buf, 3\n"
+            "@End\n"
+        )
+        interp = MozaicInterp()
+        interp.load(src)
+        trace = Trace.from_interp(interp)
+        text = trace.to_json()
+        self.assertEqual(text, Trace.from_json(text).to_json())
+        d = trace.to_dict()
+        self.assertEqual(d["log"], ["hello"])
+        self.assertEqual(len(d["midi"]), 1)
+        self.assertEqual(d["sysex"][0]["bytes"], [0xF0, 0x12, 0xF7])
 
 
 class TestMidiSpyRoundtrip(unittest.TestCase):

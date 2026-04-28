@@ -195,7 +195,7 @@ class MozaicInterp:
         if not self.timer_running or self.timer_interval_ms <= 0:
             return
         self.timer_accum_ms += ms
-        while self.timer_accum_ms >= self.timer_interval_ms:
+        while self.timer_running and self.timer_accum_ms >= self.timer_interval_ms:
             self.timer_accum_ms -= self.timer_interval_ms
             if "OnTimer" in self.handlers:
                 self.fire("OnTimer", TimerNumber=0)
