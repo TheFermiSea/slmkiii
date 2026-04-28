@@ -20,51 +20,45 @@ import time
 import mido
 
 import slmkiii.errors
+from slmkiii.midi import _SL_MKIII_IDENTIFIERS
+from slmkiii.sysex import (
+    DEVICE_INQUIRY as _DEVICE_INQUIRY,
+    INCONTROL_HEADER as INCONTROL_SYSEX_HEADER,
+    SYSEX_END,
+    COLUMN_CENTER,
+    InControlCmd,
+    Layout,
+    LedBehavior,
+    LedChannel,
+    ScreenProp,
+)
 
-# ---------------------------------------------------------------------------
-# InControl SysEx header: F0 00 20 29 02 0A 01
-# Note: 0x01 (InControl) vs 0x03 (template protocol in midi.py)
-# ---------------------------------------------------------------------------
-INCONTROL_SYSEX_HEADER = bytes([0xF0, 0x00, 0x20, 0x29, 0x02, 0x0A, 0x01])
+# Aliases for backwards compatibility — internal callers and external imports
+# (scripts/slmk_aum_controller.py etc.) reference these names directly.
+_CMD_SET_LAYOUT = InControlCmd.SET_LAYOUT
+_CMD_SET_SCREEN_PROPERTY = InControlCmd.SET_SCREEN_PROPERTY
+_CMD_SET_LED = InControlCmd.SET_LED
+_CMD_SET_NOTIFICATION = InControlCmd.SET_NOTIFICATION
 
-# InControl SysEx command IDs (byte following the header)
-_CMD_SET_LAYOUT = 0x01
-_CMD_SET_SCREEN_PROPERTY = 0x02
-_CMD_SET_LED = 0x03
-_CMD_SET_NOTIFICATION = 0x04
+LAYOUT_EMPTY = Layout.EMPTY
+LAYOUT_KNOB = Layout.KNOB
+LAYOUT_BOX = Layout.BOX
 
-# Screen layout indices
-LAYOUT_EMPTY = 0x00
-LAYOUT_KNOB = 0x01
-LAYOUT_BOX = 0x02
+PROP_TEXT = ScreenProp.TEXT
+PROP_COLOUR = ScreenProp.COLOUR
+PROP_VALUE = ScreenProp.VALUE
+PROP_RGB = ScreenProp.RGB
 
-# Screen property types
-PROP_TEXT = 0x01
-PROP_COLOUR = 0x02
-PROP_VALUE = 0x03
-PROP_RGB = 0x04
+LED_SOLID = LedBehavior.SOLID
+LED_FLASH = LedBehavior.FLASH
+LED_PULSE = LedBehavior.PULSE
 
-# LED behaviors (for SysEx RGB mode)
-LED_SOLID = 0x01
-LED_FLASH = 0x02
-LED_PULSE = 0x03
-
-# MIDI channels for LED control via Note/CC messages (0-indexed for mido)
-_LED_CH_SOLID = 15   # Channel 16
-_LED_CH_FLASH = 1    # Channel 2
-_LED_CH_PULSE = 2    # Channel 3
-
-# Center screen column index
-COLUMN_CENTER = 8
+_LED_CH_SOLID = LedChannel.SOLID
+_LED_CH_FLASH = LedChannel.FLASH
+_LED_CH_PULSE = LedChannel.PULSE
 
 # Port name substrings for InControl detection
 _INCONTROL_IDENTIFIERS = ('InControl', 'MIDIIN2', 'MIDIOUT2')
-
-# Reuse device identifier from midi.py to avoid duplication
-from slmkiii.midi import _SL_MKIII_IDENTIFIERS
-
-# Device inquiry (standard MIDI)
-_DEVICE_INQUIRY = bytes([0xF0, 0x7E, 0x0A, 0x06, 0x01, 0xF7])
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +409,7 @@ class InControlConnection:
             raise RuntimeError('InControl connection is not open')
         # mido strips F0/F7
         payload = data
-        if payload[0] == 0xF0 and payload[-1] == 0xF7:
+        if payload[0] == 0xF0 and payload[-1] == SYSEX_END:
             payload = payload[1:-1]
         msg = mido.Message('sysex', data=list(payload))
         self._output.send(msg)
@@ -480,7 +474,7 @@ class InControlConnection:
         if behavior not in (LED_SOLID, LED_FLASH, LED_PULSE):
             raise ValueError(f'behavior must be 1-3, got {behavior}')
         self._send_sysex(INCONTROL_SYSEX_HEADER + bytes([
-            _CMD_SET_LED, index, behavior, r, g, b, 0xF7,
+            _CMD_SET_LED, index, behavior, r, g, b, SYSEX_END,
         ]))
 
     def clear_led(self, index: int):
@@ -506,7 +500,7 @@ class InControlConnection:
         if layout not in (LAYOUT_EMPTY, LAYOUT_KNOB, LAYOUT_BOX):
             raise ValueError(f'Layout must be 0-2, got {layout}')
         self._send_sysex(INCONTROL_SYSEX_HEADER + bytes([
-            _CMD_SET_LAYOUT, layout, 0xF7,
+            _CMD_SET_LAYOUT, layout, SYSEX_END,
         ]))
 
     def set_text(self, column: int, field_index: int, text: str):
@@ -523,7 +517,7 @@ class InControlConnection:
         self._send_sysex(INCONTROL_SYSEX_HEADER + bytes([
             _CMD_SET_SCREEN_PROPERTY, column,
             PROP_TEXT, field_index,
-        ]) + text_bytes + bytes([0x00, 0xF7]))
+        ]) + text_bytes + bytes([0x00, SYSEX_END]))
 
     def set_color(self, column: int, obj_index: int, color: int):
         """Set a colour object on a screen column (from palette).
@@ -539,7 +533,7 @@ class InControlConnection:
             raise ValueError(f'Color must be 0-127, got {color}')
         self._send_sysex(INCONTROL_SYSEX_HEADER + bytes([
             _CMD_SET_SCREEN_PROPERTY, column,
-            PROP_COLOUR, obj_index, color, 0xF7,
+            PROP_COLOUR, obj_index, color, SYSEX_END,
         ]))
 
     def set_color_rgb(self, column: int, obj_index: int,
@@ -560,7 +554,7 @@ class InControlConnection:
                 raise ValueError(f'{name} must be 0-127, got {val}')
         self._send_sysex(INCONTROL_SYSEX_HEADER + bytes([
             _CMD_SET_SCREEN_PROPERTY, column,
-            PROP_RGB, obj_index, r, g, b, 0xF7,
+            PROP_RGB, obj_index, r, g, b, SYSEX_END,
         ]))
 
     def set_value(self, column: int, field_index: int, value: int):
@@ -580,7 +574,7 @@ class InControlConnection:
             raise ValueError(f'Value must be 0-127, got {value}')
         self._send_sysex(INCONTROL_SYSEX_HEADER + bytes([
             _CMD_SET_SCREEN_PROPERTY, column,
-            PROP_VALUE, field_index, value, 0xF7,
+            PROP_VALUE, field_index, value, SYSEX_END,
         ]))
 
     def set_screen_properties(self, column: int,
@@ -609,7 +603,7 @@ class InControlConnection:
                 payload.extend(data)  # RGB tuple
             else:
                 payload.append(data)
-        payload.append(0xF7)
+        payload.append(SYSEX_END)
         self._send_sysex(bytes(payload))
 
     def notify(self, line1: str, line2: str = ''):
@@ -627,7 +621,7 @@ class InControlConnection:
         self._send_sysex(INCONTROL_SYSEX_HEADER + bytes([
             _CMD_SET_NOTIFICATION,
         ]) + line1_bytes + bytes([0x00]) +
-            line2_bytes + bytes([0x00, 0xF7]))
+            line2_bytes + bytes([0x00, SYSEX_END]))
 
     # -- High-level screen helpers ---------------------------------------
 

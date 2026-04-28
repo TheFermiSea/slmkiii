@@ -32,17 +32,19 @@ CONTROL_BLOCK_SIZE = 44
 # Byte length of the template header (magic + 16-char name)
 HEADER_SIZE = 20
 
-# SysEx header identifying the Novation SL MkIII (manufacturer + device IDs)
-# 240=F0 SysEx start, 0x00/0x20/0x29=Novation vendor ID, 0x02/0x0A/0x03=device
-SYSEX_HEADER = (240, 0, 32, 41, 2, 10, 3)
+from slmkiii.sysex import (
+    TEMPLATE_HEADER as _TEMPLATE_HEADER_BYTES,
+    SYSEX_END as _SYSEX_END,
+    TemplateBlock,
+)
 
-# SysEx end-of-message byte (0xF7)
-SYSEX_END = 247
-
-# SysEx block type markers
-SYSEX_BLOCK_INIT = 1    # start-of-template marker
-SYSEX_BLOCK_DATA = 2    # data payload block
-SYSEX_BLOCK_CRC = 3     # CRC checksum footer
+# Re-exported for backwards compatibility — historically these were tuples/ints,
+# now sourced from the canonical sysex module.
+SYSEX_HEADER = tuple(_TEMPLATE_HEADER_BYTES)
+SYSEX_END = int(_SYSEX_END)
+SYSEX_BLOCK_INIT = TemplateBlock.INIT
+SYSEX_BLOCK_DATA = TemplateBlock.DATA
+SYSEX_BLOCK_CRC = TemplateBlock.CRC
 
 
 class Template():
