@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=../../../schemas/mapping-spec-v1.json
+spec_version: 1
+name: battalion
+label: Battalion
+project_id: battalion
+
+plugin:
+  name: UA Battalion
+  au_id: UA Battalion.AU-556E41757561424C61756D75
+  vendor: Unfiltered Audio
+
+defaults:
+  channel: 1
+
+modes:
+  bat_mix:
+    knobs:
+      - { label: Master,   cc: 7,  channel: 1, param_path: Volume }
+      - { label: OutGain,  cc: 21, channel: 1, param_path: drumProtoParams.effectParams.outGain }
+      - { label: Maximize, cc: 22, channel: 1, param_path: drumProtoParams.effectParams.maximize }
+      - { label: ModDepth, cc: 23, channel: 1, param_path: drumProtoParams.performParams.modulationDepth }
+    faders:
+      - { label: EQ Low,   cc: 24, channel: 1, param_path: drumProtoParams.effectParams.eqlow }
+      - { label: EQ Mid,   cc: 25, channel: 1, param_path: drumProtoParams.effectParams.eqmid }
+      - { label: EQ High,  cc: 26, channel: 1, param_path: drumProtoParams.effectParams.eqhigh }
+      - { label: Random,   cc: 27, channel: 1, param_path: drumProtoParams.performParams.performRandomDepth }
+
+  drum_focus:
+    # Parametric mode: $n is the drum index (1..8), $base is the cc start
+    # for that drum. Resolved per focus_set entry below.
+    knobs:
+      - { label: "D$n Cut",  cc: "$base+0", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$ncutoff" }
+      - { label: "D$n Reso", cc: "$base+1", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$nresonance" }
+      - { label: "D$n Dist", cc: "$base+2", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$ndistort" }
+      - { label: "D$n Mix",  cc: "$base+3", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$nenginemix" }
+    faders:
+      - { label: "D$n Lvl",  cc: "$base+4", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$noutGain" }
+      - { label: "D$n Pit",  cc: "$base+5", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$npitch" }
+      - { label: "D$n Dec",  cc: "$base+6", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$nenv1decay" }
+      - { label: "D$n Snd",  cc: "$base+7", channel: 1, param_path: "drumProtoParams.drum$nparams.drum$nsendA" }
+
+views:
+  drum_kit:
+    pads:
+      type: PadDrumKit
+      base_note: 36
+      channel: 10
+      label_prefix: Pad
+
+pages:
+  - name: bat_global
+    label: Bat Mix
+    color: RED
+    mode: bat_mix
+    view: drum_kit
+
+  - name: bat_drum
+    label: Bat Drum
+    color: ORANGE
+    mode: drum_focus
+    view: drum_kit
+    focus_set:
+      - { id: drum1, label: Drum 1, vars: { n: 1, base: 28 } }
+      - { id: drum2, label: Drum 2, vars: { n: 2, base: 36 } }
+      - { id: drum3, label: Drum 3, vars: { n: 3, base: 44 } }
+      - { id: drum4, label: Drum 4, vars: { n: 4, base: 52 } }
+      - { id: drum5, label: Drum 5, vars: { n: 5, base: 60 } }
+      - { id: drum6, label: Drum 6, vars: { n: 6, base: 68 } }
+      - { id: drum7, label: Drum 7, vars: { n: 7, base: 76 } }
+      - { id: drum8, label: Drum 8, vars: { n: 8, base: 84 } }

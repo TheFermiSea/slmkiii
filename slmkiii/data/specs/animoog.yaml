@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=../schemas/mapping-spec-v1.json
+spec_version: 1
+name: animoog
+label: Anmg Orb
+project_id: animoog
+plugin:
+  name: Animoog
+  au_id: Animoog Z.AU-4D6F6F67616E696D61756D75
+modes: {}
+views: {}
+pages:
+  - name: animoog_orb
+    label: Anmg Orb
+    color: GREEN
+    mode:
+      knobs:
+        - label: Orb X
+          cc: 20
+          channel: 3
+          param_path: orb_x_k
+        - label: Orb Y
+          cc: 21
+          channel: 3
+          param_path: orb_y_k
+        - label: Orb Z
+          cc: 22
+          channel: 3
+          param_path: orb_z_k
+        - label: Orb Rt
+          cc: 23
+          channel: 3
+          param_path: orb_rate_k
+      faders:
+        - label: Origin X
+          cc: 24
+          channel: 3
+          param_path: origin_x_k
+        - label: Origin Y
+          cc: 25
+          channel: 3
+          param_path: origin_y_k
+        - label: Origin Z
+          cc: 26
+          channel: 3
+          param_path: origin_z_k
+        - label: Z Mult
+          cc: 27
+          channel: 3
+          param_path: z_mult_k
+  - name: animoog_voice
+    label: Anmg Voc
+    color: CYAN
+    mode:
+      knobs:
+        - label: BaseFreq
+          cc: 28
+          channel: 3
+          param_path: base_freq_k
+        - label: Glide
+          cc: 29
+          channel: 3
+          param_path: syn_glide_k
+        - label: Voices
+          cc: 30
+          channel: 3
+          param_path: syn_voice_limit_k
+        - label: Volume
+          cc: 31
+          channel: 3
+          param_path: syn_volume_k
+      faders:
+        - label: PathRate
+          cc: 33
+          channel: 3
+          param_path: path_rate_k
+        - label: PathDir
+          cc: 34
+          channel: 3
+          param_path: path_dir_k
+        - label: PathSync
+          cc: 35
+          channel: 3
+          param_path: path_sync_t
+        - label: OrbSync
+          cc: 36
+          channel: 3
+          param_path: orb_sync_t

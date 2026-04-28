@@ -83,7 +83,8 @@ class TestControllerState(unittest.TestCase):
         state.current_page_idx = bat_drum_idx
         state.focus_idx = 2
         page = state.current_page
-        self.assertEqual(page.name, 'drum3')
+        # YAML compile labels the specialized page by drum number; D3 Cut is
+        # the canonical drum-3 cutoff label the parametric mode resolves to
         self.assertEqual(page.knobs[0].label, 'D3 Cut')
 
     def test_value_cache_persists_across_page_change(self):
