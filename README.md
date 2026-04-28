@@ -135,22 +135,17 @@ Under `scripts/` (not part of the runtime):
 
 ## Architecture
 
-Everything is one package now. Brief tour:
+Single declarative `MappingSpec` (YAML, validated by pydantic v2) feeds
+three emitters: AUM `.aum_midimap`, the Python live runtime (Mac dev),
+and the Mozaic runtime+data pair (iPad production). A parity harness
+guarantees byte-for-byte equivalence between the Python and Mozaic paths.
 
-```
-slmkiii/
-  sysex.py              every SL MkIII protocol byte (single source of truth)
-  template/             .syx/.json template format (44-byte control blocks)
-  incontrol.py          live LED/screen/input API; LED + Control + PadNote enums
-  midi.py               port discovery + template push/pull
-  aum/                  read/write .aum_midimap and .aumproj
-  controller/           live SL MkIII <-> AUM runtime (config + runtime + pages + CLI)
-  harvest.py            extract plugin params from a .aum_midimap
-  ipad_push.py          pymobiledevice3 file push
-  data/                 plugin/controller JSON dumps (Battalion, Animoog, etc.)
-```
+See:
 
-Full architectural details in [`CLAUDE.md`](CLAUDE.md).
+- [`docs/architecture.md`](docs/architecture.md) — module map + data flow
+- [`docs/adding_a_project.md`](docs/adding_a_project.md) — how to wire a new plugin
+- [`docs/runtime_data_protocol.md`](docs/runtime_data_protocol.md) — SLMK-Bridge SysEx wire spec
+- [`CLAUDE.md`](CLAUDE.md) — lower-level dev notes
 
 ## Tests
 
