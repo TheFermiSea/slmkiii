@@ -1,6 +1,8 @@
 AUM Studio Suite for Novation SL MkIII
 
-This document provides a comprehensive guide to the AUM Studio Suite, a collection of 17 custom MIDI templates designed for the Novation SL MkIII. These templates are generated using the libslmkiii Python library to create a seamless, multi-app hardware control environment on your iPad.
+This document provides a comprehensive guide to the AUM Studio Suite, a collection of 17 custom MIDI templates designed for the Novation SL MkIII. These templates are generated using the [`slmkiii`](README.md) Python library to create a seamless, multi-app hardware control environment on your iPad.
+
+> **Note**: this is the **static** template suite — one `.syx` per app, loaded into the SL MkIII's local-mode template slots. For a **live** SL MkIII ↔ AUM bridge that updates screens/LEDs in real time and supports paged plugin control, see [`slmkiii-controller`](README.md#live-controller-workflow).
 
 The suite focuses heavily on Unfiltered Audio's Battalion drum machine — including per-voice chromatic play — but also includes dedicated control templates for King of FM, Animoog, Drambo, Audulus 4, and AUM's session mixer.
 
