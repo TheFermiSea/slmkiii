@@ -1,37 +1,37 @@
-"""SL MkIII <-> AUM live controller — Mac runtime, eventual Mozaic transcription.
+"""Live SL MkIII <-> AUM controller runtime.
 
-Listens to SL MkIII on the InControl USB port, translates input to MIDI CC and
-notes on the iPad iDAM port, and paints SL MkIII screens / LEDs back in real
-time. Hybrid UX: page selection (top row), optional multi-instance focus
-(second row), and direct fixed bindings on knobs/faders/pads.
+Listens to the SL MkIII InControl USB port, translates input to MIDI CC and
+notes on a downstream output port (typically iPad iDAM), and paints SL MkIII
+screens / LEDs back in real time.
 
-Run:
-    uv run python scripts/slmk_aum_controller.py
+Pipeline:
+    SL InControl IN  →  Controller  →  output port  (iPad iDAM)
+    Controller       →  SL InControl OUT (screen text/value/colour, LEDs)
 """
 
 from __future__ import annotations
 
-import argparse
-import sys
 import time
-from dataclasses import dataclass, field
-from typing import Callable
 
 import mido
 
+from slmkiii.controller.config import Binding, Page
 from slmkiii.incontrol import (
     Control,
     InControlConnection,
-    LAYOUT_EMPTY,
-    LAYOUT_KNOB,
     LED,
     PadNote,
-    PROP_COLOUR,
-    PROP_TEXT,
-    PROP_VALUE,
+)
+from slmkiii.sysex import (
+    Color,
+    Layout,
+    ScreenProp,
 )
 
 
+# ---------------------------------------------------------------------------
+# Input vocabulary on the SL MkIII (sourced from sysex enums)
+# ---------------------------------------------------------------------------
 SL_KNOB_BASE = Control.KNOB_1.value
 SL_FADER_BASE = Control.FADER_1.value
 SL_SOFTBTN_BASE = Control.SOFT_BUTTON_1.value
@@ -41,169 +41,28 @@ SL_PADS_DOWN = Control.PADS_DOWN.value
 SL_TRACK_LEFT = Control.TRACK_LEFT.value
 SL_TRACK_RIGHT = Control.TRACK_RIGHT.value
 
+# LED index bases
 LED_TOP_ROW_BASE = LED.SOFT_BUTTON_1.value
 LED_2ND_ROW_BASE = LED.SOFT_BUTTON_9.value
 LED_PAD_BASE = LED.PAD_1.value
 LED_FADER_BASE = LED.FADER_1.value
 
-COL_OFF = 0
-COL_DIM_WHITE = 1
-COL_WHITE = 3
-COL_RED = 5
-COL_ORANGE = 9
-COL_YELLOW = 13
-COL_GREEN = 21
-COL_DIM_GREEN = 23
-COL_CYAN = 33
-COL_BLUE = 37
-COL_PURPLE = 49
 
-
-@dataclass(frozen=True)
-class Binding:
-    label: str
-    cc: int
-    channel: int
-    param_path: str = ''
-    min_val: int = 0
-    max_val: int = 127
-
-
-@dataclass
-class Page:
-    name: str
-    label: str
-    color: int
-    knobs: list[Binding] = field(default_factory=list)
-    faders: list[Binding] = field(default_factory=list)
-    pads: list[Binding] = field(default_factory=list)
-    focus_set: list[str] = field(default_factory=list)
-    # When set, current_page is computed by calling specialize(focus_idx).
-    specialize: Callable[[int], 'Page'] | None = None
-
-
-def _make_drum_page(drum_idx: int) -> Page:
-    n = drum_idx
-    cc_start = 28 + (n - 1) * 8
-    return Page(
-        name=f'drum{n}',
-        label=f'Drum {n}',
-        color=COL_ORANGE,
-        knobs=[
-            Binding(f'D{n} Cut',  cc_start + 0, 1, f'drumProtoParams.drum{n}params.drum{n}cutoff'),
-            Binding(f'D{n} Reso', cc_start + 1, 1, f'drumProtoParams.drum{n}params.drum{n}resonance'),
-            Binding(f'D{n} Dist', cc_start + 2, 1, f'drumProtoParams.drum{n}params.drum{n}distort'),
-            Binding(f'D{n} Mix',  cc_start + 3, 1, f'drumProtoParams.drum{n}params.drum{n}enginemix'),
-        ],
-        faders=[
-            Binding(f'D{n} Lvl',  cc_start + 4, 1, f'drumProtoParams.drum{n}params.drum{n}outGain'),
-            Binding(f'D{n} Pit',  cc_start + 5, 1, f'drumProtoParams.drum{n}params.drum{n}pitch'),
-            Binding(f'D{n} Dec',  cc_start + 6, 1, f'drumProtoParams.drum{n}params.drum{n}env1decay'),
-            Binding(f'D{n} Snd',  cc_start + 7, 1, f'drumProtoParams.drum{n}params.drum{n}sendA'),
-        ],
-    )
-
-
-DRUM_FOCUS_PAGES: dict[int, Page] = {i: _make_drum_page(i + 1) for i in range(8)}
-
-BATTALION_DRUM_NOTE_BASE = 36
-BATTALION_DRUM_CHANNEL = 10
-
-
-def _battalion_pads() -> list[Binding]:
-    return [
-        Binding(f'Pad {i + 1}', BATTALION_DRUM_NOTE_BASE + i,
-                BATTALION_DRUM_CHANNEL, f'drum_trigger_{i + 1}')
-        for i in range(16)
-    ]
-
-
-PAGES: list[Page] = [
-    Page(
-        name='bat_global',
-        label='Bat Mix',
-        color=COL_RED,
-        knobs=[
-            Binding('Master',   7,  1, 'Volume'),
-            Binding('OutGain',  21, 1, 'drumProtoParams.effectParams.outGain'),
-            Binding('Maximize', 22, 1, 'drumProtoParams.effectParams.maximize'),
-            Binding('ModDepth', 23, 1, 'drumProtoParams.performParams.modulationDepth'),
-        ],
-        faders=[
-            Binding('EQ Low',   24, 1, 'drumProtoParams.effectParams.eqlow'),
-            Binding('EQ Mid',   25, 1, 'drumProtoParams.effectParams.eqmid'),
-            Binding('EQ High',  26, 1, 'drumProtoParams.effectParams.eqhigh'),
-            Binding('Random',   27, 1, 'drumProtoParams.performParams.performRandomDepth'),
-        ],
-        pads=_battalion_pads(),
-    ),
-    Page(
-        name='bat_drum',
-        label='Bat Drum',
-        color=COL_ORANGE,
-        pads=_battalion_pads(),
-        focus_set=[f'drum{i + 1}' for i in range(8)],
-        specialize=lambda focus_idx: DRUM_FOCUS_PAGES[focus_idx],
-    ),
-    Page(
-        name='animoog_orb',
-        label='Anmg Orb',
-        color=COL_GREEN,
-        knobs=[
-            Binding('Orb X',    20, 3, 'orb_x_k'),
-            Binding('Orb Y',    21, 3, 'orb_y_k'),
-            Binding('Orb Z',    22, 3, 'orb_z_k'),
-            Binding('Orb Rt',   23, 3, 'orb_rate_k'),
-        ],
-        faders=[
-            Binding('Origin X', 24, 3, 'origin_x_k'),
-            Binding('Origin Y', 25, 3, 'origin_y_k'),
-            Binding('Origin Z', 26, 3, 'origin_z_k'),
-            Binding('Z Mult',   27, 3, 'z_mult_k'),
-        ],
-    ),
-    Page(
-        name='animoog_voice',
-        label='Anmg Voc',
-        color=COL_CYAN,
-        knobs=[
-            Binding('BaseFreq', 28, 3, 'base_freq_k'),
-            Binding('Glide',    29, 3, 'syn_glide_k'),
-            Binding('Voices',   30, 3, 'syn_voice_limit_k'),
-            Binding('Volume',   31, 3, 'syn_volume_k'),
-        ],
-        faders=[
-            Binding('PathRate', 33, 3, 'path_rate_k'),
-            Binding('PathDir',  34, 3, 'path_dir_k'),
-            Binding('PathSync', 35, 3, 'path_sync_t'),
-            Binding('OrbSync',  36, 3, 'orb_sync_t'),
-        ],
-    ),
-    Page(
-        name='drambo',
-        label='Drambo',
-        color=COL_PURPLE,
-        knobs=[
-            Binding(f'Macro{i + 1}', 102 + i, 3, f'unassigned{i + 1}')
-            for i in range(4)
-        ],
-        faders=[
-            Binding(f'Macro{i + 5}', 106 + i, 3, f'unassigned{i + 5}')
-            for i in range(4)
-        ],
-    ),
-]
-
-
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
 class ControllerState:
-    def __init__(self) -> None:
+    """Mutable controller state: which page/focus is active, knob values."""
+
+    def __init__(self, pages: list[Page]) -> None:
+        self.pages = pages
         self.current_page_idx = 0
         self.focus_idx = 0
         self.value_cache: dict[tuple[int, int], int] = {}
 
     @property
     def current_page_meta(self) -> Page:
-        return PAGES[self.current_page_idx]
+        return self.pages[self.current_page_idx]
 
     @property
     def current_page(self) -> Page:
@@ -227,19 +86,25 @@ class ControllerState:
         return clamped
 
 
-def _value_to_color(value: int) -> int:
+def value_to_fader_color(value: int) -> int:
+    """Map 0..127 to a colour for the fader-position indicator LED."""
     if value < 16:
-        return COL_OFF
+        return Color.OFF
     if value < 48:
-        return COL_DIM_GREEN
+        return Color.DIM_GREEN
     if value < 96:
-        return COL_GREEN
+        return Color.GREEN
     if value < 120:
-        return COL_YELLOW
-    return COL_RED
+        return Color.YELLOW
+    return Color.RED
 
 
+# ---------------------------------------------------------------------------
+# Renderer
+# ---------------------------------------------------------------------------
 class Renderer:
+    """Paints the SL MkIII screens + LEDs to reflect ControllerState."""
+
     def __init__(self, conn: InControlConnection) -> None:
         self.conn = conn
         self._led_cache: dict[int, int] = {}
@@ -254,26 +119,26 @@ class Renderer:
         page = state.current_page
         meta = state.current_page_meta
 
-        self.conn.set_layout(LAYOUT_KNOB)
+        self.conn.set_layout(Layout.KNOB)
 
         for col in range(8):
             if col < 4:
                 bindings, bcol, color = page.knobs, col, meta.color
             else:
-                bindings, bcol, color = page.faders, col - 4, COL_DIM_WHITE
+                bindings, bcol, color = page.faders, col - 4, Color.DIM_WHITE
 
             if bcol < len(bindings):
                 b = bindings[bcol]
                 self.conn.set_screen_properties(col, [
-                    (PROP_TEXT, 0, b.label[:9].encode('ascii', errors='replace')),
-                    (PROP_VALUE, 0, state.get_value(b)),
-                    (PROP_COLOUR, 0, color),
+                    (ScreenProp.TEXT, 0, b.label[:9].encode('ascii', errors='replace')),
+                    (ScreenProp.VALUE, 0, state.get_value(b)),
+                    (ScreenProp.COLOUR, 0, color),
                 ])
             else:
                 self.conn.set_screen_properties(col, [
-                    (PROP_TEXT, 0, b''),
-                    (PROP_VALUE, 0, 0),
-                    (PROP_COLOUR, 0, COL_OFF),
+                    (ScreenProp.TEXT, 0, b''),
+                    (ScreenProp.VALUE, 0, 0),
+                    (ScreenProp.COLOUR, 0, Color.OFF),
                 ])
 
         self._repaint_page_leds(state)
@@ -284,40 +149,40 @@ class Renderer:
     def _repaint_page_leds(self, state: ControllerState) -> None:
         for i in range(8):
             led = LED_TOP_ROW_BASE + i
-            if i < len(PAGES):
-                page = PAGES[i]
-                color = page.color if i == state.current_page_idx else COL_DIM_WHITE
+            if i < len(state.pages):
+                page = state.pages[i]
+                color = page.color if i == state.current_page_idx else Color.DIM_WHITE
                 self.set_led(led, color)
             else:
-                self.set_led(led, COL_OFF)
+                self.set_led(led, Color.OFF)
 
     def _repaint_focus_leds(self, state: ControllerState) -> None:
         meta = state.current_page_meta
         for i in range(8):
             led = LED_2ND_ROW_BASE + i
             if not meta.focus_set:
-                self.set_led(led, COL_OFF)
+                self.set_led(led, Color.OFF)
             elif i == state.focus_idx:
-                self.set_led(led, COL_WHITE)
+                self.set_led(led, Color.WHITE)
             elif i < len(meta.focus_set):
-                self.set_led(led, COL_DIM_WHITE)
+                self.set_led(led, Color.DIM_WHITE)
             else:
-                self.set_led(led, COL_OFF)
+                self.set_led(led, Color.OFF)
 
     def _repaint_fader_leds(self, state: ControllerState) -> None:
         page = state.current_page
         for i in range(8):
             led = LED_FADER_BASE + i
             if i < len(page.faders):
-                self.set_led(led, _value_to_color(state.get_value(page.faders[i])))
+                self.set_led(led, value_to_fader_color(state.get_value(page.faders[i])))
             else:
-                self.set_led(led, COL_OFF)
+                self.set_led(led, Color.OFF)
 
     def _repaint_pad_leds(self, state: ControllerState) -> None:
         page = state.current_page
         for i in range(16):
             led = LED_PAD_BASE + i
-            self.set_led(led, COL_BLUE if i < len(page.pads) else COL_OFF)
+            self.set_led(led, Color.BLUE if i < len(page.pads) else Color.OFF)
 
     def update_value_screen(self, col: int, value: int) -> None:
         self.conn.set_value(col, 0, value)
@@ -326,16 +191,23 @@ class Renderer:
         self.conn.notify(line1[:18], line2[:18])
 
 
+# ---------------------------------------------------------------------------
+# Controller event loop
+# ---------------------------------------------------------------------------
 class Controller:
-    def __init__(self, conn: InControlConnection, ipad_out: mido.ports.BaseOutput) -> None:
+    """Wires SL MkIII input → output port and renders feedback to the SL."""
+
+    def __init__(self, conn: InControlConnection,
+                 output: mido.ports.BaseOutput,
+                 pages: list[Page]) -> None:
         self.conn = conn
-        self.ipad_out = ipad_out
-        self.state = ControllerState()
+        self.output = output
+        self.state = ControllerState(pages)
         self.renderer = Renderer(conn)
 
     def run(self) -> None:
         self.renderer.repaint_all(self.state)
-        self.renderer.flash('SL Controller', PAGES[0].label)
+        self.renderer.flash('SL Controller', self.state.pages[0].label)
         print('Controller running. Ctrl-C to stop.')
         while True:
             for event in self.conn.poll_input():
@@ -381,7 +253,7 @@ class Controller:
         self._send(mido.Message('control_change',
                                 channel=b.channel - 1, control=b.cc, value=val))
         self.renderer.update_value_screen(idx + 4, val)
-        self.renderer.set_led(LED_FADER_BASE + idx, _value_to_color(val))
+        self.renderer.set_led(LED_FADER_BASE + idx, value_to_fader_color(val))
 
     def _handle_pad(self, event: dict) -> None:
         idx = event['pad'] - 1
@@ -393,20 +265,21 @@ class Controller:
         if velocity > 0:
             self._send(mido.Message('note_on',
                                     channel=b.channel - 1, note=b.cc, velocity=velocity))
-            self.renderer.set_led(LED_PAD_BASE + idx, COL_WHITE)
+            self.renderer.set_led(LED_PAD_BASE + idx, Color.WHITE)
         else:
             self._send(mido.Message('note_off',
                                     channel=b.channel - 1, note=b.cc, velocity=0))
-            self.renderer.set_led(LED_PAD_BASE + idx, COL_BLUE)
+            self.renderer.set_led(LED_PAD_BASE + idx, Color.BLUE)
 
     def _handle_button(self, event: dict) -> None:
         if not event.get('pressed'):
             return
         cc = event['control']
+        n_pages = len(self.state.pages)
 
         if SL_SOFTBTN_BASE <= cc < SL_SOFTBTN_BASE + 8:
             page_idx = cc - SL_SOFTBTN_BASE
-            if page_idx < len(PAGES):
+            if page_idx < n_pages:
                 self._switch_page(page_idx)
             return
 
@@ -415,9 +288,9 @@ class Controller:
             return
 
         if cc == SL_TRACK_LEFT:
-            self._switch_page((self.state.current_page_idx - 1) % len(PAGES))
+            self._switch_page((self.state.current_page_idx - 1) % n_pages)
         elif cc == SL_TRACK_RIGHT:
-            self._switch_page((self.state.current_page_idx + 1) % len(PAGES))
+            self._switch_page((self.state.current_page_idx + 1) % n_pages)
         elif cc == SL_PADS_UP:
             self._switch_focus(max(0, self.state.focus_idx - 1))
         elif cc == SL_PADS_DOWN:
@@ -447,27 +320,24 @@ class Controller:
         print(f'Focus -> {meta.focus_set[focus_idx]}')
 
     def _send(self, msg: mido.Message) -> None:
-        self.ipad_out.send(msg)
+        self.output.send(msg)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--ipad-port', default='iPad')
-    args = parser.parse_args()
-
+def run(pages: list[Page], output_port: str = 'iPad') -> int:
+    """Open the InControl + output ports and run the event loop until Ctrl-C."""
     print('Opening SL MkIII InControl ...')
     conn = InControlConnection()
     conn.__enter__()
 
-    print(f'Opening iPad output: {args.ipad_port!r} ...')
+    print(f'Opening output port: {output_port!r} ...')
     try:
-        ipad_out = mido.open_output(args.ipad_port)
+        output = mido.open_output(output_port)
     except Exception as e:
-        print(f'ERROR opening iPad port: {e}')
+        print(f'ERROR opening output port: {e}')
         conn.close()
         return 1
 
-    controller = Controller(conn, ipad_out)
+    controller = Controller(conn, output, pages)
     try:
         controller.run()
     except KeyboardInterrupt:
@@ -475,13 +345,9 @@ def main() -> int:
     finally:
         try:
             conn.clear_all_leds()
-            conn.set_layout(LAYOUT_EMPTY)
+            conn.set_layout(Layout.EMPTY)
         except Exception:
             pass
         conn.close()
-        ipad_out.close()
+        output.close()
     return 0
-
-
-if __name__ == '__main__':
-    sys.exit(main())

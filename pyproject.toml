@@ -27,6 +27,7 @@ dev = ["bpython>=0.26", "coverage"]
 [project.scripts]
 slmkiii = "slmkiii.cli:main"
 slmkiii-aum = "slmkiii.aum.cli:main"
+slmkiii-controller = "slmkiii.controller.cli:main"
 
 [project.urls]
 Repository = "https://github.com/TheFermiSea/slmkiii"
