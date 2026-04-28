@@ -25,6 +25,16 @@ def main(argv: list[str] | None = None) -> int:
     p_val = sub.add_parser("validate", help="validate a YAML spec file")
     p_val.add_argument("path", help="path to spec.yaml")
 
+    p_mig = sub.add_parser("migrate",
+                           help="migrate a Python pages module to YAML")
+    p_mig.add_argument("--module", required=True,
+                       help="dotted module path, e.g. slmkiii.controller.pages.battalion")
+    p_mig.add_argument("--out", required=True, help="output YAML path")
+    p_mig.add_argument("--verify", action="store_true",
+                       help="round-trip verify byte-equal AUM mappings")
+    p_mig.add_argument("--plugin-name", default=None)
+    p_mig.add_argument("--au-id", default=None)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "emit-schema":
@@ -40,6 +50,21 @@ def main(argv: list[str] | None = None) -> int:
             print(str(e), file=sys.stderr)
             return 1
         print(f"OK: {spec.name} ({len(spec.pages)} page(s))")
+        return 0
+
+    if args.cmd == "migrate":
+        from pathlib import Path
+        from slmkiii.spec.migrate import migrate_module, verify_round_trip, write_yaml
+        spec_dict = migrate_module(args.module,
+                                   plugin_au_id=args.au_id,
+                                   plugin_name=args.plugin_name)
+        if args.verify:
+            ok, msg = verify_round_trip(args.module, spec_dict)
+            print(msg, file=sys.stderr)
+            if not ok:
+                return 1
+        write_yaml(spec_dict, Path(args.out))
+        print(f"Wrote {args.out}")
         return 0
 
     parser.error(f"unknown command: {args.cmd}")

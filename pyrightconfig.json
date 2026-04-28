@@ -1,0 +1,17 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["slmkiii", "tests", "scripts"],
+  "exclude": [
+    ".venv",
+    "**/__pycache__",
+    ".claude/worktrees",
+    "build",
+    "output",
+    "aum_samples"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true,
+  "reportMissingImports": "warning"
+}
