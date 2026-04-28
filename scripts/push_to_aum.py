@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from controlmap.ipad_push import push_files
+from slmkiii.ipad_push import push_files
 
 
 REMOTE_DIR = '/Documents/MIDI Mappings/Channel'
