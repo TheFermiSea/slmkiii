@@ -306,6 +306,12 @@
       "data2": 21,
       "status": 159,
       "tick": 0
+    },
+    {
+      "data1": 43,
+      "data2": 13,
+      "status": 159,
+      "tick": 0
     }
   ],
   "sysex": [

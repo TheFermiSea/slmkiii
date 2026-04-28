@@ -128,7 +128,7 @@ class MozaicInterp:
         """Simulate an inbound MIDI CC; fires the @OnMidiInput → @OnMidiCC chain."""
         magic = dict(
             MIDIChannel=channel,
-            MIDICommand=0xB0 | (channel & 0x0F),
+            MIDICommand=0xB0,
             MIDIByte1=0xB0 | (channel & 0x0F),
             MIDIByte2=cc,
             MIDIByte3=val,
@@ -144,7 +144,7 @@ class MozaicInterp:
         """Simulate inbound NoteOn; fires @OnMidiInput → @OnMidiNote → @OnMidiNoteOn."""
         magic = dict(
             MIDIChannel=channel,
-            MIDICommand=0x90 | (channel & 0x0F),
+            MIDICommand=0x90,
             MIDIByte1=0x90 | (channel & 0x0F),
             MIDIByte2=note,
             MIDIByte3=vel,
@@ -160,7 +160,7 @@ class MozaicInterp:
         """Simulate inbound NoteOff; fires @OnMidiInput → @OnMidiNote → @OnMidiNoteOff."""
         magic = dict(
             MIDIChannel=channel,
-            MIDICommand=0x80 | (channel & 0x0F),
+            MIDICommand=0x80,
             MIDIByte1=0x80 | (channel & 0x0F),
             MIDIByte2=note,
             MIDIByte3=vel,
