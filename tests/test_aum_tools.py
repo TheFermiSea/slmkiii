@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aum_tools import (
+from slmkiii.aum import (
     AumMidiMapping, AumSession, AumChannel, AumPlugin,
     MSG_TYPE_CC, MSG_TYPE_NOTE,
     read_aum_midimap, write_aum_midimap, generate_midimap_bytes,

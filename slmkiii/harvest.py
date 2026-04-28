@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from aum_tools import decode_keyed_archiver
+from slmkiii.aum import decode_keyed_archiver
 
 
 def _infer_param_type(name: str) -> str:

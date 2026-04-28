@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from aum_tools import AumMidiMapping, MSG_TYPE_CC, write_aum_midimap
+from slmkiii.aum import AumMidiMapping, MSG_TYPE_CC, write_aum_midimap
 from slmk_aum_controller import (
     PAGES,
     DRUM_FOCUS_PAGES,
