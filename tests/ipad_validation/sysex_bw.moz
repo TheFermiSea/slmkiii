@@ -1,0 +1,62 @@
+// sysex_bw.moz — iPad validation TEST B
+//
+// Question: How many SysEx messages per second can Mozaic sustain to the
+// SL MkIII InControl USB endpoint before stuttering or buffer overrun?
+//
+// HOW TO USE:
+//   1. Load this Mozaic AUv3 in AUM, route output to your SL MkIII
+//      InControl port.
+//   2. Send CC #21 with value=N to set "messages per 100ms tick" (N=1..127).
+//      Start at N=1, walk up: 5, 10, 20, 50.
+//   3. Watch the SL MkIII screens — they should stay smooth. Watch the
+//      Mozaic Log for total-sent counters.
+//   4. The first N at which screens visibly stutter = the steady-state
+//      ceiling on your build. We will use 50% of that as the runtime budget.
+//
+// TARGET: >= 250 msgs/sec sustained (= ~10 full 8-screen repaints/sec).
+// TYPICAL SL MkIII USB MIDI 1.0: ~31 KB/s effective for SysEx, ~100 ms
+// = 3 KB budget per tick = ~200 short InControl messages.
+
+@OnLoad
+    SetShortName {SXBW}
+    n = 0
+    rate = 1
+    SetTimerInterval 100
+    StartTimer
+@End
+
+@OnTimer
+    i = 0
+    while i < rate
+        // Build a minimal "set screen value" SysEx (13 bytes)
+        sx[0]=0xF0
+        sx[1]=0x00
+        sx[2]=0x20
+        sx[3]=0x29
+        sx[4]=0x02
+        sx[5]=0x0A
+        sx[6]=0x01
+        sx[7]=0x02
+        sx[8]=i % 8
+        sx[9]=0x03
+        sx[10]=0x00
+        sx[11]=(n + i) % 128
+        sx[12]=0xF7
+        SendSysex sx, 13
+        i = i + 1
+    endwhile
+    n = n + rate
+    if n % 100 = 0
+        Log {sent total = }, n, {  rate=}, rate, { msgs/100ms}
+    endif
+@End
+
+@OnMidiCC
+    if MIDIByte2 = 21
+        rate = MIDIByte3
+        if rate < 1
+            rate = 1
+        endif
+        Log {-- rate set to }, rate, { msgs/100ms (}, rate*10, { msgs/sec) --}
+    endif
+@End

@@ -1,0 +1,54 @@
+// array_var.moz — iPad validation TEST A
+//
+// Question: Does Mozaic's `array[var]` indirect indexing work on the user's
+// current iPad build?
+//
+// EXPECTED on success — touching ANY MIDI source on CC#20 with values 0..7
+// (e.g. SL MkIII knob 1 in InControl mode, or "MIDI Control" in AUM):
+//
+//     map[0] = 10
+//     map[1] = 20
+//     ...
+//     map[7] = 80
+//     direct map[3] via var = 40
+//     map[j+1] via expr = 50
+//   then on each CC arrival:
+//     CC 0  -> map[0] = 10
+//     CC 1  -> map[1] = 20
+//     ...
+//     CC 7  -> map[7] = 80
+//
+// FAILURE MODES:
+//   - Parser error at upload: "expected literal at line N" -> Mozaic
+//     rejected `map[i]`. ARCHITECTURE FALLBACK: per-spec monolithic
+//     runtime with fully-unrolled if/elseif dispatch.
+//
+//   - All v values are 0: indirect indexing silently broken, only
+//     literal-index map[3] works. ARCHITECTURE FALLBACK: literal-index
+//     codegen (also unrolled if/elseif on idx).
+//
+//   - App crashes / stalls: catastrophic. Architecture fallback as above.
+
+@OnLoad
+    SetShortName {ARRTEST}
+    map[0]=10  map[1]=20  map[2]=30  map[3]=40
+    map[4]=50  map[5]=60  map[6]=70  map[7]=80
+    Log {-- array[var] test --}
+    for i = 0 to 7
+        v = map[i]
+        Log {map[}, i, {] = }, v
+    endfor
+    j = 3
+    direct = map[j]
+    Log {direct map[3] via var = }, direct
+    expr = map[j+1]
+    Log {map[j+1] via expr = }, expr
+@End
+
+@OnMidiCC
+    if MIDIByte2 = 20
+        idx = MIDIByte3 % 8
+        out = map[idx]
+        Log {CC val=}, MIDIByte3, { -> map[}, idx, {] = }, out
+    endif
+@End
