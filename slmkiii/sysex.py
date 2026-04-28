@@ -1,16 +1,9 @@
 """SL MkIII SysEx protocol — single source of truth for all magic bytes.
 
-The SL MkIII speaks two related but distinct SysEx dialects on its two USB
-ports, both rooted in Novation's standard manufacturer header:
-
-    F0 00 20 29 02 0A <port_kind> <command> <payload...> F7
-
-  port_kind = 0x01  ->  InControl live API   (LEDs, screens, notifications)
-  port_kind = 0x03  ->  Template push/pull   (binary template blocks)
-
-This module exposes typed `IntEnum`s for every byte that has meaning, plus
-pre-built header byte sequences. Anything elsewhere in the codebase that
-uses a raw hex literal for SL MkIII protocol bytes should import from here.
+The SL MkIII speaks two SysEx dialects, distinguished by the 7th header byte:
+`PortKind.INCONTROL` (0x01) for the live API, `PortKind.TEMPLATE` (0x03) for
+template push/pull. Use the IntEnums and pre-built `INCONTROL_HEADER` /
+`TEMPLATE_HEADER` byte sequences below; never inline hex literals.
 """
 
 from __future__ import annotations

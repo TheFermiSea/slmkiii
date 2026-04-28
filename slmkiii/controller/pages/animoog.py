@@ -54,3 +54,15 @@ VOICE_PAGE = Page(
 PAGES: list[Page] = [ORB_PAGE, VOICE_PAGE]
 
 AU_IDENTIFIER = 'Animoog Z.AU-4D6F6F67616E696D61756D75'
+
+
+def _aum_export():
+    from slmkiii.controller.pages import AumExport
+    return AumExport(
+        pages=PAGES,
+        au_identifier=AU_IDENTIFIER,
+        filename='SLMK Animoog.aum_midimap',
+    )
+
+
+AUM_EXPORT = _aum_export()

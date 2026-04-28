@@ -14,16 +14,19 @@ import plistlib
 _NS_NULL = '$null'
 
 
-def _resolve_uid(objects: list, val,
-                 _seen: frozenset[int] | None = None):
+def _resolve_uid(objects: list, val, _seen: set[int] | None = None):
     """Recursively resolve NSKeyedArchiver UID references to Python objects."""
     if _seen is None:
-        _seen = frozenset()
+        _seen = set()
     if isinstance(val, plistlib.UID):
         uid_int = int(val)
         if uid_int in _seen:
             return None  # break circular reference
-        return _resolve_uid(objects, objects[val], _seen | {uid_int})
+        _seen.add(uid_int)
+        try:
+            return _resolve_uid(objects, objects[val], _seen)
+        finally:
+            _seen.discard(uid_int)
     elif isinstance(val, dict):
         if 'NS.keys' in val and 'NS.objects' in val:
             keys = [_resolve_uid(objects, k, _seen) for k in val['NS.keys']]
@@ -34,12 +37,8 @@ def _resolve_uid(objects: list, val,
         elif '$classname' in val or '$classes' in val:
             return None
         else:
-            result = {}
-            for k, v in val.items():
-                if k.startswith('$'):
-                    continue
-                result[k] = _resolve_uid(objects, v, _seen)
-            return result
+            return {k: _resolve_uid(objects, v, _seen)
+                    for k, v in val.items() if not k.startswith('$')}
     elif isinstance(val, list):
         return [_resolve_uid(objects, item, _seen) for item in val]
     else:
@@ -94,9 +93,9 @@ class ArchiverBuilder:
         return uid
 
     def _add_scalar(self, val) -> plistlib.UID:
-        # bool needs the type name in the cache key because bool is a subclass
-        # of int and plistlib encodes them differently in binary plists.
-        cache_key = (type(val).__name__, val)
+        # bool must be in the key alongside the value: bool is a subclass of
+        # int and plistlib encodes the two differently in binary plists.
+        cache_key = (type(val), val)
         if cache_key in self._scalar_cache:
             return self._scalar_cache[cache_key]
         uid = self._add_object(val)

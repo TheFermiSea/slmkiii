@@ -18,8 +18,6 @@ class AumMsgType(enum.IntEnum):
     CHANNEL_PRESSURE = 4
 
 
-# Backwards-compatible module-level constants — many existing call sites
-# (and external consumers) reference these names directly.
 MSG_TYPE_CC = AumMsgType.CC
 MSG_TYPE_NOTE = AumMsgType.NOTE
 MSG_TYPE_PROGRAM_CHANGE = AumMsgType.PROGRAM_CHANGE

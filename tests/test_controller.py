@@ -78,8 +78,9 @@ class TestControllerState(unittest.TestCase):
 
     def test_focus_page_specialization(self):
         state = ControllerState(DEFAULT_PAGES)
-        # Page index 1 is bat_drum (the focused page)
-        state.current_page_idx = 1
+        bat_drum_idx = next(i for i, p in enumerate(DEFAULT_PAGES)
+                            if p.name == 'bat_drum')
+        state.current_page_idx = bat_drum_idx
         state.focus_idx = 2
         page = state.current_page
         self.assertEqual(page.name, 'drum3')

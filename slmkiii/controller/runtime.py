@@ -58,7 +58,7 @@ class ControllerState:
         self.pages = pages
         self.current_page_idx = 0
         self.focus_idx = 0
-        self.value_cache: dict[tuple[int, int], int] = {}
+        self._value_cache: dict[tuple[int, int], int] = {}
 
     @property
     def current_page_meta(self) -> Page:
@@ -78,11 +78,11 @@ class ControllerState:
         return ''
 
     def get_value(self, b: Binding) -> int:
-        return self.value_cache.get((b.channel, b.cc), 64)
+        return self._value_cache.get((b.channel, b.cc), 64)
 
     def set_value(self, b: Binding, value: int) -> int:
         clamped = max(b.min_val, min(b.max_val, value))
-        self.value_cache[(b.channel, b.cc)] = clamped
+        self._value_cache[(b.channel, b.cc)] = clamped
         return clamped
 
 
@@ -326,28 +326,24 @@ class Controller:
 def run(pages: list[Page], output_port: str = 'iPad') -> int:
     """Open the InControl + output ports and run the event loop until Ctrl-C."""
     print('Opening SL MkIII InControl ...')
-    conn = InControlConnection()
-    conn.__enter__()
-
-    print(f'Opening output port: {output_port!r} ...')
-    try:
-        output = mido.open_output(output_port)
-    except Exception as e:
-        print(f'ERROR opening output port: {e}')
-        conn.close()
-        return 1
-
-    controller = Controller(conn, output, pages)
-    try:
-        controller.run()
-    except KeyboardInterrupt:
-        print('\nStopping ...')
-    finally:
+    with InControlConnection() as conn:
+        print(f'Opening output port: {output_port!r} ...')
         try:
-            conn.clear_all_leds()
-            conn.set_layout(Layout.EMPTY)
-        except Exception:
-            pass
-        conn.close()
-        output.close()
+            output = mido.open_output(output_port)
+        except Exception as e:
+            print(f'ERROR opening output port: {e}')
+            return 1
+
+        controller = Controller(conn, output, pages)
+        try:
+            controller.run()
+        except KeyboardInterrupt:
+            print('\nStopping ...')
+        finally:
+            try:
+                conn.clear_all_leds()
+                conn.set_layout(Layout.EMPTY)
+            except Exception:
+                pass
+            output.close()
     return 0

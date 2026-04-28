@@ -7,21 +7,9 @@ import sys
 from pathlib import Path
 
 from slmkiii.aum import AumMidiMapping, AumMsgType, write_aum_midimap
-from slmkiii.aum.codec import MSG_TYPE_CC  # noqa: F401  (re-exported elsewhere)
 from slmkiii.controller import runtime
 from slmkiii.controller.config import Page
-from slmkiii.controller.pages import PROJECTS, get_pages
-from slmkiii.controller.pages import animoog as _animoog_pages
-from slmkiii.controller.pages import battalion as _battalion_pages
-
-
-# Maps each page-set module to (collection_name, output_filename).
-_AUM_TARGETS: list[tuple[list[Page], str, str]] = [
-    (_battalion_pages.PAGES + list(_battalion_pages.DRUM_FOCUS_PAGES.values()),
-     _battalion_pages.AU_IDENTIFIER, 'SLMK Battalion.aum_midimap'),
-    (_animoog_pages.PAGES,
-     _animoog_pages.AU_IDENTIFIER, 'SLMK Animoog.aum_midimap'),
-]
+from slmkiii.controller.pages import PROJECTS, get_pages, iter_aum_exports
 
 
 def _bindings_to_mappings(pages: list[Page]) -> list[AumMidiMapping]:
@@ -52,10 +40,10 @@ def _bindings_to_mappings(pages: list[Page]) -> list[AumMidiMapping]:
 def _cmd_generate_mappings(args) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    for pages, collection, filename in _AUM_TARGETS:
-        mappings = _bindings_to_mappings(pages)
-        path = out_dir / filename
-        write_aum_midimap(collection, mappings, path)
+    for export in iter_aum_exports():
+        mappings = _bindings_to_mappings(export.pages)
+        path = out_dir / export.filename
+        write_aum_midimap(export.au_identifier, mappings, path)
         print(f'  {len(mappings):3d} mappings -> {path}')
     return 0
 
@@ -64,12 +52,12 @@ def _cmd_push_mappings(args) -> int:
     from slmkiii.ipad_push import push_files
     out_dir = Path(args.out_dir)
     pairs: list[tuple[Path, str]] = []
-    for _, _, filename in _AUM_TARGETS:
-        local = out_dir / filename
+    for export in iter_aum_exports():
+        local = out_dir / export.filename
         if not local.exists():
             print(f'missing {local}; run generate-mappings first', file=sys.stderr)
             return 1
-        pairs.append((local, f'/Documents/MIDI Mappings/Channel/{filename}'))
+        pairs.append((local, f'/Documents/MIDI Mappings/Channel/{export.filename}'))
     print('Pushing to iPad AUM ...')
     for path in push_files(pairs):
         print(f'  {path}')

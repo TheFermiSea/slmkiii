@@ -6,10 +6,7 @@ import plistlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from slmkiii.aum.archiver import deref_uid
-
-# NSKeyedArchiver always stores '$null' at $objects[0].
-_NS_NULL = '$null'
+from slmkiii.aum.archiver import _NS_NULL, deref_uid
 
 
 @dataclass

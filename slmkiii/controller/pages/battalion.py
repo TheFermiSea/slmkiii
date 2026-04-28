@@ -82,3 +82,15 @@ PAGES: list[Page] = [GLOBAL_PAGE, DRUM_FOCUS_PAGE]
 
 # AU identifier used by AUM to scope MIDI mappings to the Battalion plugin.
 AU_IDENTIFIER = 'UA Battalion.AU-556E41757561424C61756D75'
+
+
+def _aum_export():
+    from slmkiii.controller.pages import AumExport
+    return AumExport(
+        pages=PAGES + list(DRUM_FOCUS_PAGES.values()),
+        au_identifier=AU_IDENTIFIER,
+        filename='SLMK Battalion.aum_midimap',
+    )
+
+
+AUM_EXPORT = _aum_export()

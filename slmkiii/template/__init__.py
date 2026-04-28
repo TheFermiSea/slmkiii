@@ -38,8 +38,6 @@ from slmkiii.sysex import (
     TemplateBlock,
 )
 
-# Re-exported for backwards compatibility — historically these were tuples/ints,
-# now sourced from the canonical sysex module.
 SYSEX_HEADER = tuple(_TEMPLATE_HEADER_BYTES)
 SYSEX_END = int(_SYSEX_END)
 SYSEX_BLOCK_INIT = TemplateBlock.INIT

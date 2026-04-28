@@ -33,8 +33,6 @@ from slmkiii.sysex import (
     ScreenProp,
 )
 
-# Aliases for backwards compatibility — internal callers and external imports
-# (scripts/slmk_aum_controller.py etc.) reference these names directly.
 _CMD_SET_LAYOUT = InControlCmd.SET_LAYOUT
 _CMD_SET_SCREEN_PROPERTY = InControlCmd.SET_SCREEN_PROPERTY
 _CMD_SET_LED = InControlCmd.SET_LED
