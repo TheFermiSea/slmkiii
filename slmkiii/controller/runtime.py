@@ -1,31 +1,57 @@
-"""Live SL MkIII <-> AUM controller runtime.
-
-Listens to the SL MkIII InControl USB port, translates input to MIDI CC and
-notes on a downstream output port (typically iPad iDAM), and paints SL MkIII
-screens / LEDs back in real time.
+"""Live SL MkIII <-> AUM controller runtime (widget + observer architecture).
 
 Pipeline:
     SL InControl IN  →  Controller  →  output port  (iPad iDAM)
     Controller       →  SL InControl OUT (screen text/value/colour, LEDs)
+
+Architecture (c10):
+    - Per-page Widgets (KnobBank/FaderBank/PadDrumKit) own slot regions and
+      handle their own input + rendering. Built fresh on every page switch.
+    - Parameters (slmkiii.params.Parameter) replace the flat value-cache
+      dict. Same Parameter object is reused across pages keyed by
+      (channel, cc), so values persist even when a page swap rewires which
+      Widget owns it.
+    - DisplayFrame absorbs all screen cell mutations into a per-cell dirty
+      cache; flush() emits SysEx only for cells that actually changed.
+    - LED rendering: Widgets paint their own LEDs via the led_set callback;
+      page-select LEDs (top row) and focus-select LEDs (second row) are
+      painted directly by the Controller (they belong to no widget).
+
+The Controller still owns *navigation* (top-row buttons, second-row focus
+buttons, track L/R, pads up/down). Widgets handle *content*.
+
+Mode/View split is implicit: knob/fader widgets = "Mode" (what the knobs
+do), pad widget + screen layout = "View" (what's painted). The two co-vary
+per page so a separate `Mode` and `View` class doesn't pay for itself —
+both live on the Page.
 """
 
 from __future__ import annotations
 
 import time
+from typing import Iterable
 
 import mido
 
 from slmkiii.controller.config import Binding, Page
+from slmkiii.display import DisplayFrame
 from slmkiii.incontrol import (
     Control,
     InControlConnection,
     LED,
     PadNote,
 )
+from slmkiii.params import Parameter, StaticParameterProvider
 from slmkiii.sysex import (
     Color,
     Layout,
-    ScreenProp,
+)
+from slmkiii.widgets import (
+    FaderBank,
+    KnobBank,
+    PadDrumKit,
+    Widget,
+    WidgetEvent,
 )
 
 
@@ -49,16 +75,50 @@ LED_FADER_BASE = LED.FADER_1.value
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def value_to_fader_color(value: int) -> int:
+    """Map 0..127 to a colour for the fader-position indicator LED."""
+    if value < 16:
+        return int(Color.OFF)
+    if value < 48:
+        return int(Color.DIM_GREEN)
+    if value < 96:
+        return int(Color.GREEN)
+    if value < 120:
+        return int(Color.YELLOW)
+    return int(Color.RED)
+
+
+def _detect_pad_kit(pads: list[Binding]) -> tuple[int, int] | None:
+    """If `pads` is a contiguous note sequence on a single channel, return
+    (base_note, channel). Otherwise None — we currently don't support
+    non-contiguous pad bindings (no test or page uses that pattern)."""
+    if not pads:
+        return None
+    base = pads[0]
+    for i, p in enumerate(pads):
+        if p.channel != base.channel or p.cc != base.cc + i:
+            return None
+    return base.cc, base.channel
+
+
+# ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 class ControllerState:
-    """Mutable controller state: which page/focus is active, knob values."""
+    """Owns page index, focus index, and the global Parameter cache.
+
+    Parameters are keyed by (channel, cc). The same Parameter is returned
+    for any Binding sharing that key, so values persist across page switches
+    even when a different Widget binds them on the new page.
+    """
 
     def __init__(self, pages: list[Page]) -> None:
         self.pages = pages
         self.current_page_idx = 0
         self.focus_idx = 0
-        self._value_cache: dict[tuple[int, int], int] = {}
+        self._params: dict[tuple[int, int], Parameter] = {}
 
     @property
     def current_page_meta(self) -> Page:
@@ -77,115 +137,97 @@ class ControllerState:
             return meta.focus_set[self.focus_idx]
         return ''
 
+    def parameter_for(self, b: Binding) -> Parameter:
+        key = (b.channel, b.cc)
+        p = self._params.get(key)
+        if p is None:
+            # Default value 64 matches legacy get_value default
+            p = Parameter(
+                name=b.label[:9],
+                cc=b.cc,
+                channel=b.channel,
+                param_path=b.param_path,
+                min_value=b.min_val,
+                max_value=b.max_val,
+                _value=64,
+            )
+            self._params[key] = p
+        else:
+            # Refresh display name + clamp range from latest binding (page swap
+            # may rebind the same CC under a different label or range)
+            p.name = b.label[:9]
+            p.min_value = b.min_val
+            p.max_value = b.max_val
+        return p
+
+    # -- back-compat shims for tests/test_controller.py ----------------------
     def get_value(self, b: Binding) -> int:
-        return self._value_cache.get((b.channel, b.cc), 64)
+        return self.parameter_for(b).value
 
     def set_value(self, b: Binding, value: int) -> int:
-        clamped = max(b.min_val, min(b.max_val, value))
-        self._value_cache[(b.channel, b.cc)] = clamped
-        return clamped
-
-
-def value_to_fader_color(value: int) -> int:
-    """Map 0..127 to a colour for the fader-position indicator LED."""
-    if value < 16:
-        return Color.OFF
-    if value < 48:
-        return Color.DIM_GREEN
-    if value < 96:
-        return Color.GREEN
-    if value < 120:
-        return Color.YELLOW
-    return Color.RED
+        p = self.parameter_for(b)
+        p.value = value
+        return p.value
 
 
 # ---------------------------------------------------------------------------
-# Renderer
+# MIDI sink + LED renderer adapters
+# ---------------------------------------------------------------------------
+class _MidoMidiSink:
+    """Adapts a mido output port to slmkiii.widgets.MidiSink Protocol."""
+
+    def __init__(self, output: mido.ports.BaseOutput) -> None:
+        self._output = output
+
+    def send_cc(self, channel: int, cc: int, value: int) -> None:
+        self._output.send(mido.Message(
+            'control_change', channel=channel - 1, control=cc, value=value))
+
+    def send_note_on(self, channel: int, note: int, velocity: int) -> None:
+        self._output.send(mido.Message(
+            'note_on', channel=channel - 1, note=note, velocity=velocity))
+
+    def send_note_off(self, channel: int, note: int) -> None:
+        self._output.send(mido.Message(
+            'note_off', channel=channel - 1, note=note, velocity=0))
+
+
+class _LedRenderer:
+    """LED diff cache. Widgets call it via led_set callback; the controller
+    calls it directly for page-select / focus-select rows."""
+
+    def __init__(self, conn: InControlConnection) -> None:
+        self._conn = conn
+        self._cache: dict[int, int] = {}
+
+    def set(self, led: int, color: int) -> None:
+        if self._cache.get(led) == color:
+            return
+        self._cache[led] = color
+        self._conn.set_led(led, color)
+
+    def invalidate(self) -> None:
+        self._cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# Renderer (kept for back-compat; thin shim over DisplayFrame + LedRenderer)
 # ---------------------------------------------------------------------------
 class Renderer:
-    """Paints the SL MkIII screens + LEDs to reflect ControllerState."""
+    """Back-compat surface used by tests/external callers. Internally uses
+    a DisplayFrame + LedRenderer instead of issuing SysEx directly."""
 
     def __init__(self, conn: InControlConnection) -> None:
         self.conn = conn
-        self._led_cache: dict[int, int] = {}
+        self.frame = DisplayFrame(conn)
+        self.leds = _LedRenderer(conn)
 
     def set_led(self, led: int, color: int) -> None:
-        if self._led_cache.get(led) == color:
-            return
-        self._led_cache[led] = color
-        self.conn.set_led(led, color)
-
-    def repaint_all(self, state: ControllerState) -> None:
-        page = state.current_page
-        meta = state.current_page_meta
-
-        self.conn.set_layout(Layout.KNOB)
-
-        for col in range(8):
-            if col < 4:
-                bindings, bcol, color = page.knobs, col, meta.color
-            else:
-                bindings, bcol, color = page.faders, col - 4, Color.DIM_WHITE
-
-            if bcol < len(bindings):
-                b = bindings[bcol]
-                self.conn.set_screen_properties(col, [
-                    (ScreenProp.TEXT, 0, b.label[:9].encode('ascii', errors='replace')),
-                    (ScreenProp.VALUE, 0, state.get_value(b)),
-                    (ScreenProp.COLOUR, 0, color),
-                ])
-            else:
-                self.conn.set_screen_properties(col, [
-                    (ScreenProp.TEXT, 0, b''),
-                    (ScreenProp.VALUE, 0, 0),
-                    (ScreenProp.COLOUR, 0, Color.OFF),
-                ])
-
-        self._repaint_page_leds(state)
-        self._repaint_focus_leds(state)
-        self._repaint_fader_leds(state)
-        self._repaint_pad_leds(state)
-
-    def _repaint_page_leds(self, state: ControllerState) -> None:
-        for i in range(8):
-            led = LED_TOP_ROW_BASE + i
-            if i < len(state.pages):
-                page = state.pages[i]
-                color = page.color if i == state.current_page_idx else Color.DIM_WHITE
-                self.set_led(led, color)
-            else:
-                self.set_led(led, Color.OFF)
-
-    def _repaint_focus_leds(self, state: ControllerState) -> None:
-        meta = state.current_page_meta
-        for i in range(8):
-            led = LED_2ND_ROW_BASE + i
-            if not meta.focus_set:
-                self.set_led(led, Color.OFF)
-            elif i == state.focus_idx:
-                self.set_led(led, Color.WHITE)
-            elif i < len(meta.focus_set):
-                self.set_led(led, Color.DIM_WHITE)
-            else:
-                self.set_led(led, Color.OFF)
-
-    def _repaint_fader_leds(self, state: ControllerState) -> None:
-        page = state.current_page
-        for i in range(8):
-            led = LED_FADER_BASE + i
-            if i < len(page.faders):
-                self.set_led(led, value_to_fader_color(state.get_value(page.faders[i])))
-            else:
-                self.set_led(led, Color.OFF)
-
-    def _repaint_pad_leds(self, state: ControllerState) -> None:
-        page = state.current_page
-        for i in range(16):
-            led = LED_PAD_BASE + i
-            self.set_led(led, Color.BLUE if i < len(page.pads) else Color.OFF)
+        self.leds.set(led, color)
 
     def update_value_screen(self, col: int, value: int) -> None:
-        self.conn.set_value(col, 0, value)
+        self.frame.set_value(col, 0, value)
+        self.frame.flush()
 
     def flash(self, line1: str, line2: str = '') -> None:
         self.conn.notify(line1[:18], line2[:18])
@@ -195,7 +237,7 @@ class Renderer:
 # Controller event loop
 # ---------------------------------------------------------------------------
 class Controller:
-    """Wires SL MkIII input → output port and renders feedback to the SL."""
+    """Wires SL MkIII input → Widgets → output port and renders feedback."""
 
     def __init__(self, conn: InControlConnection,
                  output: mido.ports.BaseOutput,
@@ -203,75 +245,163 @@ class Controller:
         self.conn = conn
         self.output = output
         self.state = ControllerState(pages)
-        self.renderer = Renderer(conn)
+        self.frame = DisplayFrame(conn)
+        self.leds = _LedRenderer(conn)
+        self.sink = _MidoMidiSink(output)
+        self._widgets: list[Widget] = []
+        self._build_widgets()
 
+    # -- widget lifecycle ----------------------------------------------------
+    def _tear_down_widgets(self) -> None:
+        # Drop references; KnobBank/FaderBank unwire param observers in their
+        # provider-changed callback by re-wiring on next render. Letting the
+        # objects garbage-collect is sufficient here because each new page
+        # builds fresh providers; old observers fire harmlessly until the GC
+        # reaps them. For deterministic teardown we explicitly unwire.
+        for w in self._widgets:
+            unwire = getattr(w, "_unwire_param_observers", None)
+            if unwire is not None:
+                unwire()
+        self._widgets = []
+
+    def _build_widgets(self) -> None:
+        self._tear_down_widgets()
+        page = self.state.current_page
+        meta = self.state.current_page_meta
+
+        widgets: list[Widget] = []
+
+        if page.knobs:
+            knob_params = [self.state.parameter_for(b) for b in page.knobs]
+            kb = KnobBank(StaticParameterProvider(knob_params),
+                          label_color=meta.color)
+            kb.bind(self.sink, self.frame, led_set=self.leds.set)
+            widgets.append(kb)
+
+        if page.faders:
+            fader_params = [self.state.parameter_for(b) for b in page.faders]
+            fb = FaderBank(StaticParameterProvider(fader_params))
+            fb.bind(self.sink, self.frame, led_set=self.leds.set)
+            widgets.append(fb)
+
+        if page.pads:
+            kit_geom = _detect_pad_kit(page.pads)
+            if kit_geom is not None:
+                base_note, chan = kit_geom
+                kit = PadDrumKit(base_note=base_note, channel=chan,
+                                 num_pads=len(page.pads))
+                kit.bind(self.sink, self.frame, led_set=self.leds.set)
+                widgets.append(kit)
+
+        self._widgets = widgets
+
+    def _repaint_all(self) -> None:
+        self.frame.set_layout(Layout.KNOB)
+
+        # Clear all 8 columns first; widgets will paint over the cells they own
+        for col in range(8):
+            self.frame.set_text(col, 0, "")
+            self.frame.set_value(col, 0, 0)
+            self.frame.set_color(col, 0, int(Color.OFF))
+
+        for w in self._widgets:
+            w.render(self.frame)
+
+        self._paint_page_leds()
+        self._paint_focus_leds()
+        self._paint_fader_leds()
+
+        self.frame.flush()
+
+    def _paint_page_leds(self) -> None:
+        for i in range(8):
+            led = LED_TOP_ROW_BASE + i
+            if i < len(self.state.pages):
+                page = self.state.pages[i]
+                color = (page.color if i == self.state.current_page_idx
+                         else int(Color.DIM_WHITE))
+                self.leds.set(led, color)
+            else:
+                self.leds.set(led, int(Color.OFF))
+
+    def _paint_focus_leds(self) -> None:
+        meta = self.state.current_page_meta
+        for i in range(8):
+            led = LED_2ND_ROW_BASE + i
+            if not meta.focus_set:
+                self.leds.set(led, int(Color.OFF))
+            elif i == self.state.focus_idx:
+                self.leds.set(led, int(Color.WHITE))
+            elif i < len(meta.focus_set):
+                self.leds.set(led, int(Color.DIM_WHITE))
+            else:
+                self.leds.set(led, int(Color.OFF))
+
+    def _paint_fader_leds(self) -> None:
+        page = self.state.current_page
+        for i in range(8):
+            led = LED_FADER_BASE + i
+            if i < len(page.faders):
+                p = self.state.parameter_for(page.faders[i])
+                self.leds.set(led, value_to_fader_color(p.value))
+            else:
+                self.leds.set(led, int(Color.OFF))
+
+    # -- main loop -----------------------------------------------------------
     def run(self) -> None:
-        self.renderer.repaint_all(self.state)
-        self.renderer.flash('SL Controller', self.state.pages[0].label)
+        self._repaint_all()
+        self.conn.notify("SL Controller"[:18],
+                         self.state.pages[0].label[:18])
         print('Controller running. Ctrl-C to stop.')
         while True:
             for event in self.conn.poll_input():
                 self._handle_event(event)
+            self.frame.flush()
             time.sleep(0.005)
 
+    # -- event dispatch ------------------------------------------------------
     def _handle_event(self, event: dict) -> None:
+        wev = self._make_widget_event(event)
+        if wev is not None:
+            for w in self._widgets:
+                if w.on_event(wev):
+                    # widget consumed; per-widget rendering may have made
+                    # frame/led calls. Update fader LED for fader events.
+                    if wev.kind == "fader":
+                        page = self.state.current_page
+                        if wev.index < len(page.faders):
+                            p = self.state.parameter_for(page.faders[wev.index])
+                            self.leds.set(LED_FADER_BASE + wev.index,
+                                          value_to_fader_color(p.value))
+                    return
+
+        # Unconsumed: navigation / system buttons handled by Controller
+        if event['type'] == 'button':
+            self._handle_nav_button(event)
+
+    def _make_widget_event(self, event: dict) -> WidgetEvent | None:
         kind = event['type']
         if kind == 'knob':
-            self._handle_knob(event)
-        elif kind == 'fader':
-            self._handle_fader(event)
-        elif kind == 'button':
-            self._handle_button(event)
-        elif kind == 'pad':
-            self._handle_pad(event)
+            idx = event['knob'] - 1
+            return WidgetEvent(kind="knob_delta", index=idx,
+                               value=event['delta'],
+                               raw_channel=16,
+                               raw_cc=SL_KNOB_BASE + idx)
+        if kind == 'fader':
+            idx = event['fader'] - 1
+            return WidgetEvent(kind="fader", index=idx,
+                               value=event['value'],
+                               raw_channel=16,
+                               raw_cc=SL_FADER_BASE + idx)
+        if kind == 'pad':
+            idx = event['pad'] - 1
+            return WidgetEvent(kind="pad", index=idx,
+                               value=event['velocity'],
+                               raw_channel=16,
+                               raw_cc=SL_PAD_BASE + idx)
+        return None
 
-    def _handle_knob(self, event: dict) -> None:
-        idx = event['knob'] - 1
-        page = self.state.current_page
-        if idx >= len(page.knobs):
-            return
-        b = page.knobs[idx]
-        prev = self.state.get_value(b)
-        new_val = max(0, min(127, prev + event['delta']))
-        if new_val == prev:
-            return
-        self.state.set_value(b, new_val)
-        self._send(mido.Message('control_change',
-                                channel=b.channel - 1, control=b.cc, value=new_val))
-        self.renderer.update_value_screen(idx, new_val)
-
-    def _handle_fader(self, event: dict) -> None:
-        idx = event['fader'] - 1
-        page = self.state.current_page
-        if idx >= len(page.faders):
-            return
-        b = page.faders[idx]
-        val = event['value']
-        if val == self.state.get_value(b):
-            return
-        self.state.set_value(b, val)
-        self._send(mido.Message('control_change',
-                                channel=b.channel - 1, control=b.cc, value=val))
-        self.renderer.update_value_screen(idx + 4, val)
-        self.renderer.set_led(LED_FADER_BASE + idx, value_to_fader_color(val))
-
-    def _handle_pad(self, event: dict) -> None:
-        idx = event['pad'] - 1
-        page = self.state.current_page
-        if idx >= len(page.pads):
-            return
-        b = page.pads[idx]
-        velocity = event['velocity']
-        if velocity > 0:
-            self._send(mido.Message('note_on',
-                                    channel=b.channel - 1, note=b.cc, velocity=velocity))
-            self.renderer.set_led(LED_PAD_BASE + idx, Color.WHITE)
-        else:
-            self._send(mido.Message('note_off',
-                                    channel=b.channel - 1, note=b.cc, velocity=0))
-            self.renderer.set_led(LED_PAD_BASE + idx, Color.BLUE)
-
-    def _handle_button(self, event: dict) -> None:
+    def _handle_nav_button(self, event: dict) -> None:
         if not event.get('pressed'):
             return
         cc = event['control']
@@ -294,17 +424,21 @@ class Controller:
         elif cc == SL_PADS_UP:
             self._switch_focus(max(0, self.state.focus_idx - 1))
         elif cc == SL_PADS_DOWN:
-            self._switch_focus(min(7, self.state.focus_idx + 1))
+            meta = self.state.current_page_meta
+            if meta.focus_set:
+                self._switch_focus(min(len(meta.focus_set) - 1,
+                                       self.state.focus_idx + 1))
 
     def _switch_page(self, page_idx: int) -> None:
         if page_idx == self.state.current_page_idx:
             return
         self.state.current_page_idx = page_idx
         self.state.focus_idx = 0
-        page = self.state.current_page
+        self._build_widgets()
+        self._repaint_all()
         meta = self.state.current_page_meta
-        self.renderer.repaint_all(self.state)
-        self.renderer.flash(meta.label, self.state.focus_label())
+        page = self.state.current_page
+        self.conn.notify(meta.label[:18], self.state.focus_label()[:18])
         print(f'Page -> {meta.name} ({page.label})')
 
     def _switch_focus(self, focus_idx: int) -> None:
@@ -314,17 +448,19 @@ class Controller:
         if focus_idx == self.state.focus_idx:
             return
         self.state.focus_idx = focus_idx
-        self.renderer.repaint_all(self.state)
+        self._build_widgets()
+        self._repaint_all()
         page = self.state.current_page
-        self.renderer.flash(meta.label, page.label)
+        self.conn.notify(meta.label[:18], page.label[:18])
         print(f'Focus -> {meta.focus_set[focus_idx]}')
 
-    def _send(self, msg: mido.Message) -> None:
-        self.output.send(msg)
 
-
-def run(pages: list[Page], output_port: str = 'iPad') -> int:
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+def run(pages: Iterable[Page], output_port: str = 'iPad') -> int:
     """Open the InControl + output ports and run the event loop until Ctrl-C."""
+    pages = list(pages)
     print('Opening SL MkIII InControl ...')
     with InControlConnection() as conn:
         print(f'Opening output port: {output_port!r} ...')
