@@ -14,9 +14,10 @@ Mozaic semantics implemented here:
   ``Exit`` aborts the rest of the cascade.
 * ``Call @Handler`` preserves magic vars; depth > 32 raises.
 * CC events fire ``@OnMidiInput → @OnMidiCC``.
-* SysEx events fire ``@OnSysex``; ``ReceiveSysex arr`` copies the payload
-  (without the F0/F7 envelope) into ``arr``, and ``SysexByte0..N`` magic vars
-  expose the same payload.
+* SysEx events fire ``@OnSysex``. ``ReceiveSysex arr`` copies the payload
+  (without the F0/F7 envelope) into ``arr``; ``SysexSize`` is the only
+  magic variable. Per-byte ``SysexByteN`` is NOT a thing in Mozaic 1.x —
+  reading one crashes the AUv3 instance on script load.
 
 Captured side-effects:
 
@@ -173,17 +174,30 @@ class MozaicInterp:
                 self.fire(h, **magic)
 
     def send_sysex(self, data: bytes) -> None:
-        """Simulate inbound SysEx; fires @OnSysex with SysexByte0..N magic vars."""
-        # Strip F0/F7 envelope if present so SysexByte0 is the first payload byte.
+        """Simulate inbound SysEx; fires @OnSysex.
+
+        Mozaic 1.x does NOT expose per-byte ``SysexByteN`` magic vars (a
+        misconception we shipped earlier). The canonical idiom is::
+
+            @OnSysex
+                ReceiveSysex sx
+                n = SysexSize
+                if sx[0] = 0x7D
+                    ...
+
+        F0/F7 are stripped from ``self._sysex_payload`` before delivery so
+        ``ReceiveSysex`` and ``SysexSize`` see only the manufacturer-id-
+        onward payload.
+        """
         payload = list(data)
         if payload and payload[0] == 0xF0:
             payload = payload[1:]
         if payload and payload[-1] == 0xF7:
             payload = payload[:-1]
         self._sysex_payload = payload
+        # Only SysexSize is exposed as a magic var; the bytes themselves are
+        # accessed via ReceiveSysex copying into a user-named array.
         magic: dict[str, Any] = {"SysexSize": len(payload)}
-        for i, b in enumerate(payload):
-            magic[f"SysexByte{i}"] = b
         self.exit_event = False
         if "OnSysex" in self.handlers:
             self.fire("OnSysex", **magic)

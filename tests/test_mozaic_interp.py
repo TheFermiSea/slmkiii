@@ -258,10 +258,14 @@ class TestMagicVars(unittest.TestCase):
         interp.send_note_on(2, 60, 64)
         self.assertEqual(interp.log, ["ch:2 n:60 v:64"])
 
-    def test_on_sysex_byte_magic_vars(self) -> None:
+    def test_on_sysex_receive_array_idiom(self) -> None:
+        # Mozaic 1.x: ReceiveSysex copies payload into a user array; SysexSize
+        # is the length. There is no per-byte SysexByteN magic var (reading
+        # one crashes the AUv3 instance on script load).
         src = (
             "@OnSysex\n"
-            "  Log {n:}, SysexSize, { b0:}, SysexByte0, { b1:}, SysexByte1\n"
+            "  ReceiveSysex sx\n"
+            "  Log {n:}, SysexSize, { b0:}, sx[0], { b1:}, sx[1]\n"
             "@End\n"
         )
         interp = MozaicInterp()

@@ -1,35 +1,27 @@
-"""MappingSpecModel → slmk_<spec>_data.moz emitter.
+"""MappingSpecModel → single-instance slmk_<spec>.moz emitter.
 
-Walks a compiled MappingSpec and produces a Mozaic script whose @OnLoad
-emits SLMK-Bridge SysEx messages (BEGIN_UPLOAD + DEFINE_* + COMMIT) to
-upload the spec into a companion slmk_runtime.moz instance.
+Splices spec-specific binding tables directly into the slmk_runtime.moz
+template at the {{INLINE_DATA_TABLES}} marker, producing one
+self-contained .moz file. No SysEx upload protocol; no cross-instance
+routing.
 
-The two .moz files run in separate Mozaic AUv3 instances inside AUM, with
-the data instance's output routed to the runtime instance's input.
+This replaced the earlier two-instance design after empirical testing
+on 2026-04-28 confirmed AUM cross-AUv3 SysEx routing crashes Mozaic
+regardless of payload content. See tests/ipad_validation/RESULTS.md.
 """
 
 from __future__ import annotations
 
-from typing import Iterable
+from pathlib import Path
 
 from slmkiii.controller.config import Page
-from slmkiii.mozaic.protocol import (
-    BeginUpload,
-    Commit,
-    DefineBinding,
-    DefineFocusSet,
-    DefinePadBinding,
-    DefinePage,
-    Message,
-    MsgType,
-    crc14,
-)
 from slmkiii.spec.compile import compile_spec
 from slmkiii.spec.models import MappingSpecModel
 from slmkiii.sysex import Color
 
 
-_RT_MAJOR = 1
+_TEMPLATE_PATH = Path(__file__).parent / "runtime" / "slmk_runtime.moz"
+_MARKER = "{{INLINE_DATA_TABLES}}"
 
 
 def _color_int(color_name) -> int:
@@ -43,117 +35,72 @@ def _color_int(color_name) -> int:
     return int(color_name) & 0x7F
 
 
-def _pages_to_messages(meta_pages: list[Page]) -> list[Message]:
-    """Build the ordered SLMK-Bridge message stream for the given pages."""
-    msgs: list[Message] = [BeginUpload(requires_rt_major=_RT_MAJOR).encode()]
-
-    for page_idx, page in enumerate(meta_pages):
-        msgs.append(DefinePage(
-            page_idx=page_idx,
-            color=_color_int(page.color),
-            name=page.name,
-        ).encode())
-
-        if page.focus_set:
-            msgs.append(DefineFocusSet(
-                page_idx=page_idx,
-                names=tuple(page.focus_set),
-            ).encode())
-            # Emit per-focus-instance bindings via specialize
-            for focus_idx in range(len(page.focus_set)):
-                if page.specialize is None:
-                    break
-                sub = page.specialize(focus_idx)
-                _emit_page_bindings(msgs, page_idx, focus_idx, sub)
-        else:
-            _emit_page_bindings(msgs, page_idx, 0, page)
-
-    # COMMIT with running CRC of payload
-    msgs.append(Commit(crc14=crc14(msgs)).encode())
-    return msgs
-
-
-def _emit_page_bindings(msgs: list[Message],
+def _emit_page_bindings(lines: list[str],
                         page_idx: int,
                         focus_idx: int,
                         page: Page) -> None:
-    # Knob bindings
+    """Emit knob_ch/cc, fader_ch/cc, pad_ch/note/color for one (page, focus)."""
+    bank_idx = (page_idx * 4 + focus_idx) * 8
     for slot, b in enumerate(page.knobs[:8]):
-        msgs.append(DefineBinding(
-            page_idx=page_idx,
-            focus_idx=focus_idx,
-            slot=slot,
-            channel=b.channel,
-            cc=b.cc,
-            label=b.label[:9],
-        ).encode_as(MsgType.DEFINE_KNOB_BINDING))
-
-    # Fader bindings
+        lines.append(f"    knob_ch[{bank_idx + slot}] = {b.channel & 0x7F}")
+        lines.append(f"    knob_cc[{bank_idx + slot}] = {b.cc & 0x7F}")
     for slot, b in enumerate(page.faders[:8]):
-        msgs.append(DefineBinding(
-            page_idx=page_idx,
-            focus_idx=focus_idx,
-            slot=slot,
-            channel=b.channel,
-            cc=b.cc,
-            label=b.label[:9],
-        ).encode_as(MsgType.DEFINE_FADER_BINDING))
+        lines.append(f"    fader_ch[{bank_idx + slot}] = {b.channel & 0x7F}")
+        lines.append(f"    fader_cc[{bank_idx + slot}] = {b.cc & 0x7F}")
 
-    # Pad bindings — default rest color = blue
+    pad_bank = (page_idx * 4 + focus_idx) * 16
+    rest_color = int(Color.BLUE)
     for slot, b in enumerate(page.pads[:16]):
-        msgs.append(DefinePadBinding(
-            page_idx=page_idx,
-            focus_idx=focus_idx,
-            slot=slot,
-            channel=b.channel,
-            note=b.cc,
-            color=int(Color.BLUE),
-        ).encode())
+        lines.append(f"    pad_ch[{pad_bank + slot}] = {b.channel & 0x7F}")
+        lines.append(f"    pad_note[{pad_bank + slot}] = {b.cc & 0x7F}")
+        lines.append(f"    pad_color[{pad_bank + slot}] = {rest_color}")
 
 
-def _format_byte_array(name: str, data: bytes) -> str:
-    """Mozaic-friendly inline array literal for a small byte sequence."""
-    body = ", ".join(f"0x{b:02X}" for b in data)
-    return f"    {name} = [{body}]"
+def _build_data_block(meta_pages: list[Page]) -> str:
+    """Produce the Mozaic source block to splice into the template."""
+    lines: list[str] = ["    // ---- spec data (codegen) ----"]
 
+    for page_idx, page in enumerate(meta_pages):
+        lines.append(f"    page_color[{page_idx}] = {_color_int(page.color)}")
+        if page.focus_set:
+            lines.append(f"    focus_count[{page_idx}] = {len(page.focus_set)}")
+            if page.specialize is None:
+                continue
+            for focus_idx in range(len(page.focus_set)):
+                sub = page.specialize(focus_idx)
+                lines.append(
+                    f"    // {page.name}.{page.focus_set[focus_idx]}"
+                )
+                _emit_page_bindings(lines, page_idx, focus_idx, sub)
+        else:
+            lines.append(f"    // {page.name}")
+            _emit_page_bindings(lines, page_idx, 0, page)
 
-def emit_data_moz(model: MappingSpecModel,
-                  *,
-                  short_name: str | None = None) -> str:
-    """Render a complete .moz source string for a MappingSpec."""
-    pages = compile_spec(model)
-    msgs = _pages_to_messages(pages)
-    short = short_name or model.name.upper()[:7]
-
-    lines: list[str] = []
-    lines.append(f"// AUTO-GENERATED — do not edit by hand")
-    lines.append(f"// Source spec: {model.name}")
-    lines.append(f"// Pages: {len(pages)}")
-    lines.append(f"// Messages: {len(msgs)}")
-    lines.append(f"//")
-    lines.append(f"// Companion to slmk_runtime.moz. Load both as separate Mozaic")
-    lines.append(f"// AUv3 instances in AUM with data.output -> runtime.input.")
-    lines.append("")
-    lines.append("@OnLoad")
-    lines.append(f"    SetShortName {{{short}}}")
-    lines.append(f"    Log {{{model.name}: uploading {len(pages)} pages...}}")
-
-    for i, msg in enumerate(msgs):
-        body = bytes([0xF0, 0x7D, 0x53, 0x4C, 0x4D, 0x4B, int(msg.msg_type)]) + msg.body + bytes([0xF7])
-        lines.append("")
-        lines.append(f"    // Msg {i+1}/{len(msgs)}: {msg.msg_type.name}")
-        lines.append(_format_byte_array(f"sx", body))
-        lines.append(f"    SendSysex sx, {len(body)}")
-
-    lines.append("")
-    lines.append(f"    Log {{{model.name}: upload complete}}")
-    lines.append("@End")
-    lines.append("")
-
+    lines.append(f"    n_pages = {len(meta_pages)}")
     return "\n".join(lines)
 
 
-def write_data_moz(model: MappingSpecModel, path: str) -> None:
-    from pathlib import Path
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(emit_data_moz(model))
+def emit_runtime_moz(model: MappingSpecModel) -> str:
+    """Render a complete single-instance .moz source for a MappingSpec."""
+    template = _TEMPLATE_PATH.read_text()
+    if _MARKER not in template:
+        raise RuntimeError(
+            f"runtime template at {_TEMPLATE_PATH} is missing {_MARKER!r} marker"
+        )
+    pages = compile_spec(model)
+    block = _build_data_block(pages)
+    out = template.replace(_MARKER, block)
+    # Banner lines so the generated file can be visually distinguished
+    banner = [
+        f"// AUTO-GENERATED slmk_{model.name}.moz — do not edit by hand",
+        f"// Source spec: {model.name} ({len(pages)} pages)",
+        "// Edit slmkiii/data/specs/<name>.yaml + re-run the emitter to regenerate.",
+        "//",
+    ]
+    return "\n".join(banner) + "\n" + out
+
+
+def write_runtime_moz(model: MappingSpecModel, path: str | Path) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(emit_runtime_moz(model))

@@ -1,48 +1,40 @@
-// SLMK Runtime — hand-written, generic, version 1.0.0
+// SLMK Runtime — single-instance template, version 2.0.0
 //
-// Receives spec data via private SLMK-Bridge SysEx (header F0 7D 53 4C 4D 4B)
-// from a companion data .moz instance running on @OnLoad. After COMMIT,
-// drives SL MkIII screens / LEDs from the uploaded tables and translates
-// hardware input to plugin CC/notes routed via AUM.
+// Hand-written + slot for codegen-injected binding tables. The Python
+// emitter (slmkiii/mozaic/emit_data.py) splices a `<spec>`-specific block
+// of array assignments into the marker line below, producing one
+// self-contained `slmk_<spec>.moz` file.
 //
-// IPAD VALIDATION ASSUMPTIONS (verify with tests/ipad_validation/array_var.moz):
-//   - arr[var] indirect indexing works for read AND write
-//   - cross-instance SysEx routing in AUM works (data .moz -> runtime .moz)
-//   - SysEx output throughput >= 100 msg/sec sustained
+// Why single-instance: cross-instance Mozaic-AUv3 SysEx routing in AUM
+// is fundamentally unreliable (256-byte CoreMIDI packet limit, Mozaic's
+// shared-timestamp SysEx bug, non-deterministic AUv3 ordering).
+// Empirically verified on 2026-04-28: even a 3-byte SysEx with a no-op
+// @OnSysex handler crashes the receiving Mozaic instance.
+// See tests/ipad_validation/RESULTS.md for full evidence + citations.
 //
-// If any of those fails, fall back architectures are documented in
-// tests/ipad_validation/RESULTS.md.
-//
-// PROTOCOL DETAILS in slmkiii/mozaic/protocol.py.
-// Capacity advertised: 8 pages x 4 focus instances x (8 knobs + 8 faders +
-// 16 pads). Pad table sized for 8x4x16 = 512 cells (1024 limit / 2 for
-// channel + note arrays).
+// Capacity: 8 pages × 4 focus instances × (8 knobs + 8 faders + 16 pads).
 
 @OnLoad
     SetShortName {SLMK RT}
     ShowLayout 2
-    LabelPads {SLMK Runtime — awaiting data upload}
+    LabelPads {SLMK Runtime — see screens for live labels}
 
-    // ---- Static SL MkIII protocol bytes (sourced from incontrol.py) ----
+    // ---- Static SL MkIII protocol bytes (sourced from slmkiii.sysex) ----
     sl_ch=15                    // SL MkIII InControl ch16 (0-indexed)
-
-    // Input CC bases
-    sl_knob_base=0x15           // CC 0x15..0x1C ch16 (delta)
-    sl_fader_base=0x29          // CC 0x29..0x30 ch16 (absolute)
-    sl_softbtn_base=0x33        // CC 0x33..0x42 ch16 (top + 2nd row)
-    sl_pad_base=0x60            // NoteOn 0x60..0x6F ch16
+    sl_knob_base=0x15
+    sl_fader_base=0x29
+    sl_softbtn_base=0x33
+    sl_pad_base=0x60
     sl_pads_up=0x55
     sl_pads_down=0x56
     sl_track_left=0x66
     sl_track_right=0x67
 
-    // LED indices
-    led_top_row_base=0x04       // SOFT_BUTTON_1..8
-    led_2nd_row_base=0x0C       // SOFT_BUTTON_9..16
+    led_top_row_base=0x04
+    led_2nd_row_base=0x0C
     led_pad_base=0x26
     led_fader_base=0x36
 
-    // SL palette (subset)
     col_off=0
     col_dim_white=1
     col_white=3
@@ -55,200 +47,35 @@
     col_blue=37
     col_purple=49
 
-    // ---- Initial state ----
     active_page=0
     active_focus=0
-    n_pages=0                   // updated on COMMIT
-    upload_in_progress=0
-    rt_major=1
-    rt_minor=0
-    rt_patch=0
 
-    // ---- Capacity tables (1024 cells max each) ----
-    // page metadata
+    // ---- Initialise empty tables (codegen overwrites them below) ----
     FillArray page_color, 0, 8
-
-    // knob/fader bindings: indexed by (page * 4 + focus) * 8 + slot = 256 cells
     FillArray knob_ch, 0, 256
     FillArray knob_cc, 0, 256
     FillArray fader_ch, 0, 256
     FillArray fader_cc, 0, 256
-
-    // knob/fader values (live state, not from data .moz; per-(channel,cc))
-    // We use a separate flat 16x128 = 2048 array? No — too big.
-    // Compromise: per-binding value cache, indexed same as bindings.
     FillArray knob_val, 64, 256
     FillArray fader_val, 0, 256
-
-    // pad bindings: (page * 4 + focus) * 16 + slot = 512 cells
     FillArray pad_ch, 0, 512
     FillArray pad_note, 0, 512
     FillArray pad_color, 0, 512
-
-    // focus_set sizes per page (0 = page has no focus_set)
     FillArray focus_count, 0, 8
 
-    // page LED color cache for diff
-    FillArray led_cache, -1, 128
+    // ===================================================================
+    // Codegen splices spec-specific data here:
+    //   page_color[i] = ...
+    //   focus_count[i] = ...
+    //   knob_ch[idx] = ..., knob_cc[idx] = ...
+    //   fader_ch[idx] = ..., fader_cc[idx] = ...
+    //   pad_ch[idx] = ..., pad_note[idx] = ..., pad_color[idx] = ...
+    //   n_pages = N
+    // ===================================================================
+    {{INLINE_DATA_TABLES}}
 
-    Log {SLMK Runtime v}, rt_major, {.}, rt_minor, {.}, rt_patch, { ready}
-@End
-
-// ===========================================================================
-// SysEx upload handler (data .moz -> runtime)
-// ===========================================================================
-@OnSysex
-    // Validate SLMK-Bridge prefix: F0 7D 53 4C 4D 4B
-    // SysExByte0 is F0 stripped by Mozaic on entry per ref §6.4 — first
-    // payload byte is the manufacturer 7D
-    if SysexByte0 <> 0x7D
-        Exit
-    endif
-    if SysexByte1 <> 0x53 or SysexByte2 <> 0x4C or SysexByte3 <> 0x4D or SysexByte4 <> 0x4B
-        Exit
-    endif
-
-    cmd=SysexByte5
-
-    // 0x03 BEGIN_UPLOAD
-    if cmd = 0x03
-        // body: data_major, data_minor, requires_rt_major
-        if SysexByte8 > rt_major
-            // Required runtime major > what we are; report and abort
-            Call @SendErrorReport
-            Exit
-        endif
-        upload_in_progress=1
-        // Reset shadow tables
-        FillArray page_color, 0, 8
-        FillArray knob_ch, 0, 256
-        FillArray knob_cc, 0, 256
-        FillArray fader_ch, 0, 256
-        FillArray fader_cc, 0, 256
-        FillArray pad_ch, 0, 512
-        FillArray pad_note, 0, 512
-        FillArray pad_color, 0, 512
-        FillArray focus_count, 0, 8
-        n_pages=0
-        Log {BEGIN_UPLOAD: data v}, SysexByte6, {.}, SysexByte7
-        Exit
-    endif
-
-    // 0x04 DEFINE_PAGE: page_idx, color, name_len, name...
-    if cmd = 0x04
-        page_idx=SysexByte6
-        if page_idx >= 8
-            Exit
-        endif
-        page_color[page_idx]=SysexByte7
-        if page_idx >= n_pages
-            n_pages=page_idx + 1
-        endif
-        Log {DEFINE_PAGE }, page_idx, { color=}, page_color[page_idx]
-        Exit
-    endif
-
-    // 0x05 DEFINE_FOCUS_SET: page_idx, count, [len, name_bytes...] x N
-    if cmd = 0x05
-        page_idx=SysexByte6
-        count=SysexByte7
-        if page_idx < 8
-            focus_count[page_idx]=count
-            Log {DEFINE_FOCUS_SET page=}, page_idx, { count=}, count
-        endif
-        Exit
-    endif
-
-    // 0x06 DEFINE_KNOB_BINDING / 0x07 DEFINE_FADER_BINDING
-    // body: page, focus, slot, channel, cc, label_len, label...
-    if cmd = 0x06 or cmd = 0x07
-        page_idx=SysexByte6
-        focus_idx=SysexByte7
-        slot=SysexByte8
-        ch=SysexByte9
-        cc=SysexByte10
-        if page_idx >= 8 or focus_idx >= 4 or slot >= 8
-            Exit
-        endif
-        // bindings[(page*4+focus)*8+slot] = ch, cc
-        idx=(page_idx*4 + focus_idx)*8 + slot
-        if cmd = 0x06
-            knob_ch[idx]=ch
-            knob_cc[idx]=cc
-        else
-            fader_ch[idx]=ch
-            fader_cc[idx]=cc
-        endif
-        Exit
-    endif
-
-    // 0x08 DEFINE_PAD_BINDING: page, focus, slot, channel, note, color
-    if cmd = 0x08
-        page_idx=SysexByte6
-        focus_idx=SysexByte7
-        slot=SysexByte8
-        ch=SysexByte9
-        note=SysexByte10
-        color=SysexByte11
-        if page_idx >= 8 or focus_idx >= 4 or slot >= 16
-            Exit
-        endif
-        idx=(page_idx*4 + focus_idx)*16 + slot
-        pad_ch[idx]=ch
-        pad_note[idx]=note
-        pad_color[idx]=color
-        Exit
-    endif
-
-    // 0x0C COMMIT: build dispatch tables and start rendering
-    if cmd = 0x0C
-        upload_in_progress=0
-        Call @RenderActivePage
-        Log {COMMIT: }, n_pages, { pages active}
-        Exit
-    endif
-
-    // 0x10 RESET: clear shadow tables (abort partial upload)
-    if cmd = 0x10
-        upload_in_progress=0
-        FillArray page_color, 0, 8
-        n_pages=0
-        Log {RESET}
-        Exit
-    endif
-
-    // 0x01 VERSION_QUERY -> reply
-    if cmd = 0x01
-        sx[0]=0xF0
-        sx[1]=0x7D
-        sx[2]=0x53
-        sx[3]=0x4C
-        sx[4]=0x4D
-        sx[5]=0x4B
-        sx[6]=0x02              // VERSION_REPLY
-        sx[7]=rt_major
-        sx[8]=rt_minor
-        sx[9]=rt_patch
-        sx[10]=0xF7
-        SendSysex sx, 11
-        Exit
-    endif
-@End
-
-@SendErrorReport
-    sx[0]=0xF0
-    sx[1]=0x7D
-    sx[2]=0x53
-    sx[3]=0x4C
-    sx[4]=0x4D
-    sx[5]=0x4B
-    sx[6]=0x0E                  // ERROR_REPORT
-    sx[7]=cmd
-    sx[8]=0x03                  // RT_TOO_OLD
-    sx[9]=rt_major
-    sx[10]=0
-    sx[11]=0xF7
-    SendSysex sx, 12
+    Log {SLMK Runtime ready: }, n_pages, { pages}
+    Call @RenderActivePage
 @End
 
 // ===========================================================================
@@ -265,7 +92,6 @@
     if cc >= sl_knob_base and cc < sl_knob_base + 8
         knob_idx=cc - sl_knob_base
         if knob_idx >= 4
-            // SL MkIII has 8 knobs, but only 4 mapped to a typical mode
             Exit
         endif
         Call @HandleKnobDelta
@@ -282,7 +108,7 @@
         Exit
     endif
 
-    // SOFT BUTTONS (page select / focus select / nav)
+    // SOFT BUTTONS (page select / focus select)
     if cc >= sl_softbtn_base and cc < sl_softbtn_base + 16
         if val = 127
             Call @HandleSoftButton
@@ -329,7 +155,6 @@
 @End
 
 @HandleKnobDelta
-    // val is 1..63 = +N, 65..127 = -N
     delta=val
     if delta > 63
         delta=delta - 128
@@ -338,7 +163,7 @@
     out_ch=knob_ch[idx]
     out_cc=knob_cc[idx]
     if out_ch = 0
-        Exit                    // unbound
+        Exit
     endif
     new_val=knob_val[idx] + delta
     if new_val < 0
@@ -348,11 +173,10 @@
         new_val=127
     endif
     if new_val = knob_val[idx]
-        Exit                    // no-op (clamped at rail)
+        Exit
     endif
     knob_val[idx]=new_val
     SendMIDICC out_ch - 1, out_cc, new_val
-    // Update screen value cell for this knob column
     Call @UpdateKnobScreen
 @End
 
@@ -374,7 +198,6 @@
 @HandleSoftButton
     btn=cc - sl_softbtn_base
     if btn < 8
-        // Top row: page select
         if btn < n_pages
             active_page=btn
             active_focus=0
@@ -382,7 +205,6 @@
         endif
         Exit
     endif
-    // Second row: focus select within current page
     focus_btn=btn - 8
     if focus_btn < focus_count[active_page]
         active_focus=focus_btn
@@ -420,7 +242,6 @@
 // Render — paints all 8 columns + LEDs for the active (page, focus)
 // ===========================================================================
 @RenderActivePage
-    // Set layout = KNOB
     sx[0]=0xF0
     sx[1]=0x00
     sx[2]=0x20
@@ -428,12 +249,11 @@
     sx[4]=0x02
     sx[5]=0x0A
     sx[6]=0x01
-    sx[7]=0x01                  // SET_LAYOUT
-    sx[8]=0x01                  // KNOB
+    sx[7]=0x01
+    sx[8]=0x01
     sx[9]=0xF7
     SendSysex sx, 10
 
-    // Paint top-row LEDs (page selector)
     for i = 0 to 7
         if i < n_pages
             if i = active_page
@@ -446,7 +266,6 @@
         endif
     endfor
 
-    // Paint 2nd-row LEDs (focus selector)
     for i = 0 to 7
         if i < focus_count[active_page]
             if i = active_focus
@@ -459,7 +278,6 @@
         endif
     endfor
 
-    // Paint pad LEDs
     for i = 0 to 15
         idx=(active_page*4 + active_focus)*16 + i
         if pad_ch[idx] > 0
@@ -471,7 +289,6 @@
 @End
 
 @UpdateKnobScreen
-    // Send a single set_value for column knob_idx on the knob's screen
     sx[0]=0xF0
     sx[1]=0x00
     sx[2]=0x20
@@ -479,10 +296,10 @@
     sx[4]=0x02
     sx[5]=0x0A
     sx[6]=0x01
-    sx[7]=0x02                  // SET_SCREEN_PROPERTY
-    sx[8]=knob_idx              // column 0..7 (knob_idx is 0..3)
-    sx[9]=0x03                  // PROP_VALUE
-    sx[10]=0x00                 // field index
+    sx[7]=0x02
+    sx[8]=knob_idx
+    sx[9]=0x03
+    sx[10]=0x00
     sx[11]=new_val
     sx[12]=0xF7
     SendSysex sx, 13
@@ -497,14 +314,13 @@
     sx[5]=0x0A
     sx[6]=0x01
     sx[7]=0x02
-    sx[8]=fader_idx + 4         // columns 4..7 for faders
+    sx[8]=fader_idx + 4
     sx[9]=0x03
     sx[10]=0x00
     sx[11]=val
     sx[12]=0xF7
     SendSysex sx, 13
 
-    // Also update fader-strip LED to reflect value (color gradient)
     led_color=col_off
     if val >= 16
         led_color=col_dim_green

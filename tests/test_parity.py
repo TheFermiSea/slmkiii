@@ -19,14 +19,11 @@ from pathlib import Path
 
 from slmkiii.controller.runtime import Controller
 from slmkiii.mozaic import MozaicInterp
-from slmkiii.mozaic.emit_data import emit_data_moz
+from slmkiii.mozaic.emit_data import emit_runtime_moz
 from slmkiii.spec.compile import compile_spec
 from slmkiii.spec.loader import load_spec
 
 
-_RUNTIME_SRC = (Path(__file__).resolve().parents[1]
-                / "slmkiii" / "mozaic" / "runtime" / "slmk_runtime.moz"
-                ).read_text()
 _BATTALION_YAML = (Path(__file__).resolve().parents[1]
                    / "slmkiii" / "data" / "specs" / "battalion.yaml")
 _ANIMOOG_YAML = (Path(__file__).resolve().parents[1]
@@ -61,13 +58,9 @@ def _build_python_runtime(yaml_path: Path) -> tuple[Controller, _CapturingMidoOu
 
 
 def _build_mozaic_runtime(yaml_path: Path) -> MozaicInterp:
+    """Build the single-instance runtime (data tables inlined at compile)."""
     rt = MozaicInterp()
-    rt.load(_RUNTIME_SRC)
-    spec = load_spec(yaml_path)
-    data = MozaicInterp()
-    data.load(emit_data_moz(spec))
-    for sx in data.sysex_out:
-        rt.send_sysex(sx.bytes_data)
+    rt.load(emit_runtime_moz(load_spec(yaml_path)))
     return rt
 
 
