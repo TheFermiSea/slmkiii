@@ -4,8 +4,11 @@ renders/handles events for that region."""
 
 from slmkiii.widgets.base import LedSetter, MidiSink, Widget, WidgetEvent, WidgetRegion
 from slmkiii.widgets.fader_bank import FaderBank
+from slmkiii.widgets.inc_dec import IncDec
 from slmkiii.widgets.knob_bank import KnobBank
 from slmkiii.widgets.pad_drum_kit import PadDrumKit
+from slmkiii.widgets.radio_group import RadioGroup
+from slmkiii.widgets.step_grid import StepGrid
 
 __all__ = [
     "LedSetter",
@@ -16,4 +19,7 @@ __all__ = [
     "KnobBank",
     "FaderBank",
     "PadDrumKit",
+    "RadioGroup",
+    "IncDec",
+    "StepGrid",
 ]
