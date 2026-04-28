@@ -42,6 +42,7 @@ from slmkiii.incontrol import (
     PadNote,
 )
 from slmkiii.params import Parameter, StaticParameterProvider
+from slmkiii.perf import timed
 from slmkiii.sysex import (
     Color,
     Layout,
@@ -361,23 +362,22 @@ class Controller:
 
     # -- event dispatch ------------------------------------------------------
     def _handle_event(self, event: dict) -> None:
-        wev = self._make_widget_event(event)
-        if wev is not None:
-            for w in self._widgets:
-                if w.on_event(wev):
-                    # widget consumed; per-widget rendering may have made
-                    # frame/led calls. Update fader LED for fader events.
-                    if wev.kind == "fader":
-                        page = self.state.current_page
-                        if wev.index < len(page.faders):
-                            p = self.state.parameter_for(page.faders[wev.index])
-                            self.leds.set(LED_FADER_BASE + wev.index,
-                                          value_to_fader_color(p.value))
-                    return
+        with timed(f"event.{event['type']}"):
+            wev = self._make_widget_event(event)
+            if wev is not None:
+                for w in self._widgets:
+                    if w.on_event(wev):
+                        if wev.kind == "fader":
+                            page = self.state.current_page
+                            if wev.index < len(page.faders):
+                                p = self.state.parameter_for(page.faders[wev.index])
+                                self.leds.set(LED_FADER_BASE + wev.index,
+                                              value_to_fader_color(p.value))
+                        return
 
-        # Unconsumed: navigation / system buttons handled by Controller
-        if event['type'] == 'button':
-            self._handle_nav_button(event)
+            # Unconsumed: navigation / system buttons handled by Controller
+            if event['type'] == 'button':
+                self._handle_nav_button(event)
 
     def _make_widget_event(self, event: dict) -> WidgetEvent | None:
         kind = event['type']
@@ -432,10 +432,11 @@ class Controller:
     def _switch_page(self, page_idx: int) -> None:
         if page_idx == self.state.current_page_idx:
             return
-        self.state.current_page_idx = page_idx
-        self.state.focus_idx = 0
-        self._build_widgets()
-        self._repaint_all()
+        with timed("page_switch"):
+            self.state.current_page_idx = page_idx
+            self.state.focus_idx = 0
+            self._build_widgets()
+            self._repaint_all()
         meta = self.state.current_page_meta
         page = self.state.current_page
         self.conn.notify(meta.label[:18], self.state.focus_label()[:18])

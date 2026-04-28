@@ -1,4 +1,10 @@
-"""Page configs for Moog Animoog Z (Orb-engine synth).
+"""DEPRECATED: page configs for Moog Animoog Z (Orb-engine synth).
+
+This Python-dataclass spec is superseded by slmkiii/data/specs/animoog.yaml,
+which is auto-loaded by slmkiii.controller.pages and wins on name collision.
+This file is preserved as a fallback for users who haven't migrated yet
+and will be deleted in a future release. New page configs should be
+authored as YAML; see docs/adding_a_project.md when it lands (c20).
 
 The harvested .aum_midimap exposes only the 21 Orb-engine root params — there
 are no per-timbre level/pitch, no ADSR, no filter cutoff/resonance as
@@ -6,8 +12,17 @@ discrete MIDI-mappable params. The two pages below cover the full
 MIDI-mappable surface: Orb position+rate+origin, voicing+path animator.
 All on MIDI channel 3.
 """
-
 from __future__ import annotations
+
+import warnings as _warnings
+
+_warnings.warn(
+    "slmkiii.controller.pages.animoog (Python spec) is deprecated; "
+    "slmkiii/data/specs/animoog.yaml is the canonical source. "
+    "This module will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from slmkiii.controller.config import Binding, Page
 from slmkiii.sysex import Color

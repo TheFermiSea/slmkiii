@@ -72,12 +72,22 @@ def _discover() -> tuple[dict[str, list[Page]], list[Page], list[AumExport]]:
     projects.update(yaml_pages)
     aum_exports.extend(yaml_exports)
 
+    import warnings as _warnings
     for info in pkgutil.iter_modules(__path__):
         if info.name.startswith('_'):
             continue
         if info.name in projects:
-            continue   # YAML already provided this project
-        mod = importlib.import_module(f'{__name__}.{info.name}')
+            # YAML already provided this project; skip the legacy .py
+            # module entirely to avoid its DeprecationWarning firing for
+            # users who have already migrated.
+            continue
+        # The legacy .py modules emit DeprecationWarning at import time.
+        # The fallback path is the only reason they exist, so don't echo
+        # the warning during auto-discovery; let `pytest -W error` and
+        # explicit imports surface it instead.
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", DeprecationWarning)
+            mod = importlib.import_module(f'{__name__}.{info.name}')
         pages = getattr(mod, 'PAGES', None)
         if not pages:
             continue

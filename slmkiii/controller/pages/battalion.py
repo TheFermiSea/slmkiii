@@ -1,10 +1,25 @@
-"""Page configs for Unfiltered Audio Battalion (8-track drum synth).
+"""DEPRECATED: page configs for Unfiltered Audio Battalion (8-track drum synth).
+
+This Python-dataclass spec is superseded by slmkiii/data/specs/battalion.yaml,
+which is auto-loaded by slmkiii.controller.pages and wins on name collision.
+This file is preserved as a fallback for users who haven't migrated yet
+and will be deleted in a future release. New page configs should be
+authored as YAML.
 
 CCs all on MIDI channel 1, allocated in 20..91 (avoiding the standard
 reserved CCs 7, 64-69, 96-99). Drum trigger pads send notes 36-51 ch10.
 """
-
 from __future__ import annotations
+
+import warnings as _warnings
+
+_warnings.warn(
+    "slmkiii.controller.pages.battalion (Python spec) is deprecated; "
+    "slmkiii/data/specs/battalion.yaml is the canonical source. "
+    "This module will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from slmkiii.controller.config import Binding, Page
 from slmkiii.sysex import Color
