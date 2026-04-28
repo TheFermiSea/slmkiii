@@ -286,7 +286,12 @@
             SendMIDINoteOn sl_ch, led_pad_base + i, col_off
         endif
     endfor
+
+    // Codegen-emitted dispatch to per-(page, focus) label renderer
+    {{LABEL_DISPATCH}}
 @End
+
+// {{LABEL_HANDLERS}}
 
 @UpdateKnobScreen
     sx[0]=0xF0
