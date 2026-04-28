@@ -9,7 +9,8 @@ from slmkiii.mozaic import MozaicInterp, parse
 from slmkiii.mozaic.errors import MozaicError
 from slmkiii.mozaic.snapshot import MidiEvent, SysexEvent, Trace
 
-QK_UTILS = Path("/Users/briansquires/code/quantumkomposer/qk_utils")
+QK_UTILS = Path(str(Path(__file__).resolve().parents[1].parent / 'quantumkomposer' / 'qk_utils'))
+_QK_AVAILABLE = QK_UTILS.is_dir()
 
 
 def _run(src: str, handler: str = "OnLoad", **magic) -> MozaicInterp:
@@ -343,6 +344,7 @@ class TestTraceSnapshot(unittest.TestCase):
         self.assertEqual(d["sysex"][0]["bytes"], [0xF0, 0x12, 0xF7])
 
 
+@unittest.skipUnless(_QK_AVAILABLE, 'qk_utils sibling repo not present')
 class TestMidiSpyRoundtrip(unittest.TestCase):
     def test_note_on_logs_note_on(self) -> None:
         src = (QK_UTILS / "midi_spy.moz").read_text()

@@ -60,6 +60,32 @@ slmkiii/
     defaults.py
     input/{input,button,knob,fader,pad_hit,range_control}.py
   incontrol.py        live LED/screen/input API; LED + Control + PadNote enums
+  display.py          DisplayFrame: per-cell dirty cache + flush() — SysEx
+                      only sent when cell text/color/value actually changed
+  params.py           Parameter, ParameterProvider, SelectedFocusProvider —
+                      reactive value-holder with observer chain
+  widgets/            Composable surface units (region of slots + render +
+                      event handler)
+    __init__.py       Widget, WidgetEvent, WidgetRegion, EventKind Literal
+    base.py           Widget base + MidiSink Protocol + LedSetter
+    knob_bank.py      N knobs bound to a ParameterProvider
+    fader_bank.py     N faders, absolute values, default column_offset=4
+    pad_drum_kit.py   16 pads → notes; velocity-sensitive
+    radio_group.py    Mutually-exclusive button bank
+    inc_dec.py        +/- button pair targeting page/focus/Parameter
+    step_grid.py      rows × steps toggle matrix
+  spec/               Declarative MappingSpec model (pydantic v2 + ruamel.yaml)
+    __init__.py
+    models.py         MappingSpecModel + nested models (PageModel, ModeModel,
+                      ViewModel, BindingModel, ...). Strict (extra="forbid").
+    loader.py         YAML safe-loader + path-aware ValidationError formatting
+    compile.py        MappingSpecModel → list[Page]. Resolves parametric
+                      modes via $n / $base+N substitutions per focus_set
+                      entry. Returns one meta Page with specialize callable
+                      per focus-set page (matches runtime focus mechanism).
+    migrate.py        slmkiii-spec migrate — read .py pages, emit YAML;
+                      --verify byte-compares AUM mapping output
+    cli.py            slmkiii-spec emit-schema/validate/migrate
   aum/                AUM file format tools
     __init__.py
     codec.py          AumMsgType IntEnum
@@ -71,21 +97,35 @@ slmkiii/
     __init__.py       re-exports Page/Binding/Controller/Renderer/run
     config.py         Page + Binding dataclasses
     runtime.py        ControllerState + Renderer + Controller + run()
+    aum_export.py     bindings_to_aum_mappings — shared by cli.py + spec.migrate
     cli.py            `slmkiii-controller` CLI (run / generate-mappings / push-mappings)
-    pages/            per-project page configs
-      __init__.py     PROJECTS registry, DEFAULT_PAGES
-      battalion.py    bat_global + 8 per-drum focus pages
-      animoog.py      orb + voice
+    pages/            per-project page configs (legacy .py path)
+      __init__.py     PROJECTS registry, DEFAULT_PAGES, auto-discovers
+                      slmkiii/data/specs/*.yaml; YAML wins on name collision
+      battalion.py    legacy bat_global + 8 per-drum focus pages (now in YAML)
+      animoog.py      legacy orb + voice (now in YAML)
       drambo.py       8 generic CC macros
+  mozaic/             Python interpreter for Mozaic .moz scripts (test-only)
+    __init__.py
+    lexer.py          tokeniser (KEYWORD/NUMBER/STRING/IDENT/HANDLER/OP)
+    parser.py         recursive-descent → AST
+    ast.py            Module + Stmt/Expr dataclasses
+    interp.py         tree-walking evaluator with MIDI/SysEx/timer capture
+    snapshot.py       Trace serialization for golden tests
+    errors.py         MozaicError with line:col reporting
   ipad_push.py        pymobiledevice3 HouseArrest helper
   harvest.py          extract plugin params from a harvested .aum_midimap
-  data/               plugin/controller JSON dumps for reference
+  data/               plugin/controller JSON dumps + canonical YAML specs
     plugins/{ua_battalion,animoog_z}.json
     controllers/slmkiii.json
+    specs/{battalion,animoog}.yaml   ← YAML specs auto-loaded at controller startup
 
 aum_suite.py          (top-level CLI) generates a 17-template suite for AUM
 scripts/              dev-only diagnostics (screen_smoke, sniff_both, sl_ipad_bridge)
-tests/                unittest suite
+tests/                unittest suite (281 tests)
+  fakes.py            shared test doubles (FakeSink, FakeFrame)
+  ipad_validation/    Mozaic .moz scripts the user runs on iPad to validate
+                      the Mozaic 1.3 features the runtime depends on
 ```
 
 ### `slmkiii.sysex` — Single source of truth for protocol bytes

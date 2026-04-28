@@ -10,7 +10,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
+from io import StringIO
+
+import ruamel.yaml
+
+_YAML = ruamel.yaml.YAML(typ="safe", pure=True)
+_YAML.default_flow_style = False
+
+
+def _yaml_dump(obj) -> str:
+    buf = StringIO()
+    _YAML.dump(obj, buf)
+    return buf.getvalue()
+
+
+def _yaml_load(text: str):
+    return _YAML.load(StringIO(text))
 
 from slmkiii.spec import (
     MappingSpecModel,
@@ -65,6 +80,25 @@ class TestSampleLoad(unittest.TestCase):
 
 
 class TestErrorReporting(unittest.TestCase):
+    def test_plugin_name_must_be_filename_safe(self):
+        d = _minimal_dict()
+        d["plugin"]["name"] = "../../etc/passwd"   # path traversal
+        with self.assertRaises(SpecError) as cm:
+            load_spec_dict(d)
+        self.assertIn("plugin.name", str(cm.exception).lower().replace(" ", "."))
+
+    def test_plugin_name_rejects_slashes(self):
+        d = _minimal_dict()
+        d["plugin"]["name"] = "Foo/Bar"
+        with self.assertRaises(SpecError):
+            load_spec_dict(d)
+
+    def test_plugin_name_accepts_normal_names(self):
+        d = _minimal_dict()
+        for name in ("Battalion", "UA Battalion", "Animoog Z", "foo_bar-1.0"):
+            d["plugin"]["name"] = name
+            load_spec_dict(d)   # must not raise
+
     def test_malformed_yaml(self):
         with tempfile.NamedTemporaryFile(
             "w", suffix=".yaml", delete=False
@@ -272,8 +306,8 @@ class TestRoundTrip(unittest.TestCase):
         spec1 = load_spec(SAMPLE)
         # model_dump -> yaml -> reload
         dumped = spec1.model_dump(mode="python")
-        text = yaml.safe_dump(dumped, sort_keys=False)
-        reparsed = yaml.safe_load(text)
+        text = _yaml_dump(dumped)
+        reparsed = _yaml_load(text)
         spec2 = load_spec_dict(reparsed)
         self.assertEqual(
             spec1.model_dump(mode="json"),
@@ -320,7 +354,7 @@ class TestSchemaCli(unittest.TestCase):
         with tempfile.NamedTemporaryFile(
             "w", suffix=".yaml", delete=False
         ) as f:
-            yaml.safe_dump(bad, f)
+            f.write(_yaml_dump(bad))
             path = f.name
         try:
             result = subprocess.run(

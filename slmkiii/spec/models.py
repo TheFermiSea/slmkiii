@@ -207,7 +207,10 @@ class PageModel(_Strict):
 
 
 class PluginInfo(_Strict):
-    name: str
+    # name flows into output filenames (e.g. "SLMK <name>.aum_midimap"), so
+    # constrain to filename-safe ASCII with no path separators.
+    name: str = Field(min_length=1, max_length=64,
+                      pattern=r"^[A-Za-z0-9][A-Za-z0-9 _.\-]*$")
     au_id: str | None = None
     vendor: str | None = None
 

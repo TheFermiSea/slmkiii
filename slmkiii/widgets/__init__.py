@@ -2,7 +2,14 @@
 IncDec, StepGrid. Each owns a contiguous region of SL MkIII slots and
 renders/handles events for that region."""
 
-from slmkiii.widgets.base import LedSetter, MidiSink, Widget, WidgetEvent, WidgetRegion
+from slmkiii.widgets.base import (
+    EventKind,
+    LedSetter,
+    MidiSink,
+    Widget,
+    WidgetEvent,
+    WidgetRegion,
+)
 from slmkiii.widgets.fader_bank import FaderBank
 from slmkiii.widgets.inc_dec import IncDec
 from slmkiii.widgets.knob_bank import KnobBank
@@ -11,6 +18,7 @@ from slmkiii.widgets.radio_group import RadioGroup
 from slmkiii.widgets.step_grid import StepGrid
 
 __all__ = [
+    "EventKind",
     "LedSetter",
     "MidiSink",
     "Widget",

@@ -9,7 +9,8 @@ from slmkiii.mozaic import ast as A
 from slmkiii.mozaic import parse
 from slmkiii.mozaic.errors import MozaicError
 
-QK_UTILS = Path("/Users/briansquires/code/quantumkomposer/qk_utils")
+QK_UTILS = Path(str(Path(__file__).resolve().parents[1].parent / 'quantumkomposer' / 'qk_utils'))
+_QK_AVAILABLE = QK_UTILS.is_dir()
 
 ALL_SCRIPTS = (
     "qk2sl.moz",
@@ -22,6 +23,7 @@ ALL_SCRIPTS = (
 )
 
 
+@unittest.skipUnless(_QK_AVAILABLE, 'qk_utils sibling repo not present')
 class TestRealScripts(unittest.TestCase):
     def test_all_qk_utils_parse(self) -> None:
         for name in ALL_SCRIPTS:

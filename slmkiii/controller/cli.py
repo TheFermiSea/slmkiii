@@ -6,42 +6,17 @@ import argparse
 import sys
 from pathlib import Path
 
-from slmkiii.aum import AumMidiMapping, AumMsgType, write_aum_midimap
+from slmkiii.aum import write_aum_midimap
 from slmkiii.controller import runtime
-from slmkiii.controller.config import Page
+from slmkiii.controller.aum_export import bindings_to_aum_mappings
 from slmkiii.controller.pages import PROJECTS, get_pages, iter_aum_exports
-
-
-def _bindings_to_mappings(pages: list[Page]) -> list[AumMidiMapping]:
-    """Walk pages, dedupe by (channel, cc, param_path), build AumMidiMappings."""
-    seen: set[tuple[int, int, str]] = set()
-    out: list[AumMidiMapping] = []
-    for p in pages:
-        for b in p.knobs + p.faders:
-            if not b.param_path:
-                continue
-            key = (b.channel - 1, b.cc, b.param_path)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(AumMidiMapping(
-                parameter_name=b.param_path,
-                cc_number=b.cc,
-                channel=b.channel - 1,
-                min_value=0.0,
-                max_value=1.0,
-                enabled=True,
-                auto_toggle=False,
-                msg_type=int(AumMsgType.CC),
-            ))
-    return out
 
 
 def _cmd_generate_mappings(args) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for export in iter_aum_exports():
-        mappings = _bindings_to_mappings(export.pages)
+        mappings = bindings_to_aum_mappings(export.pages)
         path = out_dir / export.filename
         write_aum_midimap(export.au_identifier, mappings, path)
         print(f'  {len(mappings):3d} mappings -> {path}')

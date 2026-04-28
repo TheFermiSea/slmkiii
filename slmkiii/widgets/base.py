@@ -8,13 +8,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
+
+
+# Discriminator for WidgetEvent.kind. Centralises the spelling of every
+# event class so subclasses can compare against this Literal alias instead
+# of bare string literals.
+EventKind = Literal["knob_delta", "fader", "pad", "button"]
 
 
 @dataclass(frozen=True)
 class WidgetEvent:
     """Input event delivered to widgets by the controller event router."""
-    kind: str           # "knob_delta" | "fader" | "pad" | "button"
+    kind: EventKind     # "knob_delta" | "fader" | "pad" | "button"
     index: int          # slot index within the widget's region
     value: int          # delta for knob_delta, abs for fader, vel for pad, 127/0 for button
     raw_channel: int = 0    # 1-indexed MIDI channel of source event

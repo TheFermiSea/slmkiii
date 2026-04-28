@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
-import yaml
+import ruamel.yaml
 from pydantic import ValidationError
 
 from slmkiii.spec.models import MappingSpecModel
@@ -13,6 +14,13 @@ from slmkiii.spec.models import MappingSpecModel
 
 class SpecError(Exception):
     """Raised when a spec fails to load or validate."""
+
+
+# Reusable safe loader. ruamel.yaml's safe loader (typ='safe') refuses to
+# instantiate arbitrary Python objects — same security posture as pyyaml's
+# safe_load. We keep a single instance because constructing one per call
+# is non-trivial.
+_SAFE_LOADER = ruamel.yaml.YAML(typ="safe", pure=True)
 
 
 def load_spec(path: str | Path) -> MappingSpecModel:
@@ -24,8 +32,8 @@ def load_spec(path: str | Path) -> MappingSpecModel:
     p = Path(path)
     text = p.read_text()
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as e:
+        data = _SAFE_LOADER.load(StringIO(text))
+    except ruamel.yaml.YAMLError as e:
         raise SpecError(f"{p}: YAML parse error: {e}") from e
     if data is None:
         raise SpecError(f"{p}: file is empty or YAML loaded as None")

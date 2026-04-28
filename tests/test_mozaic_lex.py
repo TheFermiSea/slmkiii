@@ -8,7 +8,8 @@ from pathlib import Path
 from slmkiii.mozaic import lex
 from slmkiii.mozaic.errors import MozaicError
 
-QK_UTILS = Path("/Users/briansquires/code/quantumkomposer/qk_utils")
+QK_UTILS = Path(str(Path(__file__).resolve().parents[1].parent / 'quantumkomposer' / 'qk_utils'))
+_QK_AVAILABLE = QK_UTILS.is_dir()
 
 
 def _kinds(source: str) -> list[str]:
@@ -118,6 +119,7 @@ class TestRepresentativeLines(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(_QK_AVAILABLE, 'qk_utils sibling repo not present')
 class TestRealScripts(unittest.TestCase):
     def test_qk2sl_lexes_clean(self) -> None:
         src = (QK_UTILS / "qk2sl.moz").read_text()

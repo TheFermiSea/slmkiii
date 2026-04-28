@@ -24,7 +24,8 @@ from typing import Callable
 from slmkiii.mozaic import MozaicInterp
 from slmkiii.mozaic.snapshot import Trace
 
-QK_UTILS = Path("/Users/briansquires/code/quantumkomposer/qk_utils")
+QK_UTILS = Path(str(Path(__file__).resolve().parents[1].parent / 'quantumkomposer' / 'qk_utils'))
+_QK_AVAILABLE = QK_UTILS.is_dir()
 GOLDEN_DIR = Path(__file__).parent / "golden"
 UPDATE_GOLDEN = os.environ.get("MOZAIC_UPDATE_GOLDEN", "") not in ("", "0", "false")
 

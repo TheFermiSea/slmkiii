@@ -19,11 +19,11 @@ from typing import Any
 
 import ruamel.yaml
 
-from slmkiii.aum import AumMidiMapping, AumMsgType, generate_midimap_bytes
+from slmkiii.aum import generate_midimap_bytes
+from slmkiii.controller.aum_export import bindings_to_aum_mappings
 from slmkiii.controller.config import Binding, Page
 from slmkiii.spec.compile import compile_spec
 from slmkiii.spec.loader import load_spec_dict
-from slmkiii.spec.models import MappingSpecModel
 from slmkiii.sysex import Color
 
 
@@ -131,46 +131,9 @@ def migrate_module(module_name: str,
     return spec
 
 
-def _expand_pages(pages: list[Page]) -> list[Page]:
-    """Flatten focus-set meta pages into per-instance pages for AUM export.
-
-    A page with `specialize` set produces N specialized pages (one per
-    focus_set entry). A plain page passes through unchanged.
-    """
-    out: list[Page] = []
-    for p in pages:
-        if p.specialize is not None and p.focus_set:
-            for i in range(len(p.focus_set)):
-                out.append(p.specialize(i))
-        else:
-            out.append(p)
-    return out
-
-
-def _bindings_to_aum_mappings(pages: list[Page]) -> list[AumMidiMapping]:
-    """Mirror of slmkiii.controller.cli._bindings_to_mappings, with focus
-    expansion so all sub-instance bindings reach the AUM mapping file."""
-    seen: set[tuple[int, int, str]] = set()
-    out: list[AumMidiMapping] = []
-    for p in _expand_pages(pages):
-        for b in list(p.knobs) + list(p.faders):
-            if not b.param_path:
-                continue
-            key = (b.channel - 1, b.cc, b.param_path)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(AumMidiMapping(
-                parameter_name=b.param_path,
-                cc_number=b.cc,
-                channel=b.channel - 1,
-                min_value=0.0,
-                max_value=1.0,
-                enabled=True,
-                auto_toggle=False,
-                msg_type=int(AumMsgType.CC),
-            ))
-    return out
+def _bindings_to_aum_mappings(pages: list[Page]):
+    """Wrapper for tests: focus-expanded mappings (used by verify_round_trip)."""
+    return bindings_to_aum_mappings(pages, expand_focus=True)
 
 
 def verify_round_trip(module_name: str, spec_dict: dict[str, Any]) -> tuple[bool, str]:
