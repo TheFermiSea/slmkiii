@@ -1,0 +1,10 @@
+{
+  "log": [
+    "NOTE ON:  144 ch:1 C4 [60] v:100",
+    "NOTE OFF: 128 ch:1 C4 [60] v:0",
+    "CH: 1  cc7-64",
+    "CH: 1  cc1-0"
+  ],
+  "midi": [],
+  "sysex": []
+}

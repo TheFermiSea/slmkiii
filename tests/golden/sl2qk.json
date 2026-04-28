@@ -1,0 +1,138 @@
+{
+  "log": [],
+  "midi": [
+    {
+      "data1": 36,
+      "data2": 65,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 66,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 67,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 68,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 69,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 70,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 71,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 72,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 73,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 36,
+      "data2": 74,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 0,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 16,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 32,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 48,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 64,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 80,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 96,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 112,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 78,
+      "data2": 127,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 24,
+      "data2": 4,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 90,
+      "data2": 8,
+      "status": 191,
+      "tick": 0
+    },
+    {
+      "data1": 90,
+      "data2": 0,
+      "status": 191,
+      "tick": 0
+    }
+  ],
+  "sysex": []
+}
