@@ -18,6 +18,9 @@ classifiers = [
 dependencies = [
     "mido>=1.3.3",
     "python-rtmidi>=1.5.8",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "ruamel.yaml>=0.18",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +31,7 @@ dev = ["bpython>=0.26", "coverage"]
 slmkiii = "slmkiii.cli:main"
 slmkiii-aum = "slmkiii.aum.cli:main"
 slmkiii-controller = "slmkiii.controller.cli:main"
+slmkiii-spec = "slmkiii.spec.cli:main"
 
 [project.urls]
 Repository = "https://github.com/TheFermiSea/slmkiii"

@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=../../schema/mapping_spec.json
+spec_version: 1
+name: battalion_demo
+label: Bat Demo
+project_id: ua-battalion
+
+plugin:
+  name: UA Battalion
+  au_id: UA Battalion.AU-556E41757561424C61756D75
+  vendor: Unfiltered Audio
+
+defaults:
+  channel: 1
+  cc_range: [20, 119]
+
+plugin_echo:
+  - channel: 1
+    cc: 7
+  - channel: 1
+    cc_range: [20, 27]
+
+modes:
+  bat_mix:
+    knobs:
+      - { label: Master,   cc: 7,  param_path: Volume }
+      - { label: OutGain,  cc: 21, param_path: drumProtoParams.effectParams.outGain }
+      - { label: Maximize, cc: 22, param_path: drumProtoParams.effectParams.maximize }
+      - { label: ModDepth, cc: 23, param_path: drumProtoParams.performParams.modulationDepth }
+    faders:
+      - { label: EQ Low,  cc: 24, param_path: drumProtoParams.effectParams.eqlow }
+      - { label: EQ Mid,  cc: 25, param_path: drumProtoParams.effectParams.eqmid }
+      - { label: EQ High, cc: 26, param_path: drumProtoParams.effectParams.eqhigh }
+      - { label: Random,  cc: 27, param_path: drumProtoParams.performParams.performRandomDepth }
+
+  bat_drum_focus:
+    # Parametric mode: cc resolved via focus_set vars.base
+    knobs:
+      - { label: D Cut,  cc: "$base+0", param_path: drumProtoParams.drum.cutoff }
+      - { label: D Reso, cc: "$base+1", param_path: drumProtoParams.drum.resonance }
+      - { label: D Dist, cc: "$base+2", param_path: drumProtoParams.drum.distort }
+      - { label: D Mix,  cc: "$base+3", param_path: drumProtoParams.drum.enginemix }
+    faders:
+      - { label: D Lvl,  cc: "$base+4", param_path: drumProtoParams.drum.outGain }
+      - { label: D Pit,  cc: "$base+5", param_path: drumProtoParams.drum.pitch }
+      - { label: D Dec,  cc: "$base+6", param_path: drumProtoParams.drum.env1decay }
+      - { label: D Snd,  cc: "$base+7", param_path: drumProtoParams.drum.sendA }
+
+views:
+  drum_pads:
+    pads:
+      type: PadDrumKit
+      base_note: 36
+      channel: 10
+      label_prefix: D
+      colors: { rest: BLUE, active: WHITE }
+    radio:
+      type: RadioGroup
+      target: focus
+      count: 8
+      colors: { selected: WHITE, idle: DIM_WHITE }
+
+pages:
+  - name: bat_global
+    label: Bat Mix
+    color: RED
+    mode: bat_mix
+    view: drum_pads
+
+  - name: bat_drum
+    label: Bat Drum
+    color: ORANGE
+    mode: bat_drum_focus
+    view:
+      pads:
+        type: PadDrumKit
+        base_note: 36
+        channel: 10
+        label_prefix: D
+    focus_set:
+      - { id: drum1, label: Drum 1, vars: { base: 28 } }
+      - { id: drum2, label: Drum 2, vars: { base: 36 } }
+
+navigation:
+  page_prev: TRACK_LEFT
+  page_next: TRACK_RIGHT
+  focus_prev: PADS_UP
+  focus_next: PADS_DOWN
