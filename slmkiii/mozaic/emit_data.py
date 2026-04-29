@@ -42,7 +42,7 @@ def _emit_page_bindings(lines: list[str],
                         focus_idx: int,
                         page: Page) -> None:
     """Emit knob_ch/cc, fader_ch/cc, pad_ch/note/color for one (page, focus)."""
-    bank_idx = (page_idx * 4 + focus_idx) * 8
+    bank_idx = (page_idx * 8 + focus_idx) * 8
     for slot, b in enumerate(page.knobs[:8]):
         lines.append(f"    knob_ch[{bank_idx + slot}] = {b.channel & 0x7F}")
         lines.append(f"    knob_cc[{bank_idx + slot}] = {b.cc & 0x7F}")
@@ -50,7 +50,7 @@ def _emit_page_bindings(lines: list[str],
         lines.append(f"    fader_ch[{bank_idx + slot}] = {b.channel & 0x7F}")
         lines.append(f"    fader_cc[{bank_idx + slot}] = {b.cc & 0x7F}")
 
-    pad_bank = (page_idx * 4 + focus_idx) * 16
+    pad_bank = (page_idx * 8 + focus_idx) * 16
     rest_color = int(Color.BLUE)
     for slot, b in enumerate(page.pads[:16]):
         lines.append(f"    pad_ch[{pad_bank + slot}] = {b.channel & 0x7F}")
