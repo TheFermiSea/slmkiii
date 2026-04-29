@@ -52,15 +52,15 @@
 
     // ---- Initialise empty tables (codegen overwrites them below) ----
     FillArray page_color, 0, 8
-    FillArray knob_ch, 0, 512
-    FillArray knob_cc, 0, 512
-    FillArray fader_ch, 0, 512
-    FillArray fader_cc, 0, 512
-    FillArray knob_val, 64, 512
-    FillArray fader_val, 0, 512
-    FillArray pad_ch, 0, 1024
-    FillArray pad_note, 0, 1024
-    FillArray pad_color, 0, 1024
+    FillArray knob_ch, 0, 256
+    FillArray knob_cc, 0, 256
+    FillArray fader_ch, 0, 256
+    FillArray fader_cc, 0, 256
+    FillArray knob_val, 64, 256
+    FillArray fader_val, 0, 256
+    FillArray pad_ch, 0, 512
+    FillArray pad_note, 0, 512
+    FillArray pad_color, 0, 512
     FillArray focus_count, 0, 8
 
     // ===================================================================
@@ -159,7 +159,7 @@
     if delta > 63
         delta=delta - 128
     endif
-    idx=(active_page*8 + active_focus)*8 + knob_idx
+    idx=(active_page*4 + active_focus)*8 + knob_idx
     out_ch=knob_ch[idx]
     out_cc=knob_cc[idx]
     if out_ch = 0
@@ -181,7 +181,7 @@
 @End
 
 @HandleFader
-    idx=(active_page*8 + active_focus)*8 + fader_idx
+    idx=(active_page*4 + active_focus)*8 + fader_idx
     out_ch=fader_ch[idx]
     out_cc=fader_cc[idx]
     if out_ch = 0
@@ -223,7 +223,7 @@
         Exit
     endif
     pad=MIDIByte2 - sl_pad_base
-    idx=(active_page*8 + active_focus)*16 + pad
+    idx=(active_page*4 + active_focus)*16 + pad
     out_ch=pad_ch[idx]
     out_note=pad_note[idx]
     if out_ch = 0
@@ -279,7 +279,7 @@
     endfor
 
     for i = 0 to 15
-        idx=(active_page*8 + active_focus)*16 + i
+        idx=(active_page*4 + active_focus)*16 + i
         if pad_ch[idx] > 0
             SendMIDINoteOn sl_ch, led_pad_base + i, pad_color[idx]
         else

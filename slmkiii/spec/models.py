@@ -203,7 +203,7 @@ class PageModel(_Strict):
     color: Color
     mode: str | ModeModel  # ref-by-name OR inline
     view: str | ViewModel | None = None
-    focus_set: list[FocusEntry] = Field(default_factory=list, max_length=8)
+    focus_set: list[FocusEntry] = Field(default_factory=list)
 
 
 class PluginInfo(_Strict):
