@@ -16,7 +16,7 @@ def _cmd_generate_mappings(args) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for export in iter_aum_exports():
-        mappings = bindings_to_aum_mappings(export.pages)
+        mappings = bindings_to_aum_mappings(export.pages, expand_focus=True)
         path = out_dir / export.filename
         write_aum_midimap(export.au_identifier, mappings, path)
         print(f'  {len(mappings):3d} mappings -> {path}')
